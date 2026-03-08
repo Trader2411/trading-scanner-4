@@ -20,78 +20,61 @@ st.set_page_config(
 )
 
 # --------------------------------------------------
-# Hilfsfunktionen für Karten
-# --------------------------------------------------
-
-def formatiere_kurs(wert):
-    try:
-        return f"{float(wert):.2f}"
-    except Exception:
-        return "-"
-
-
-def formatiere_prozent(wert):
-    try:
-        return f"{float(wert):.2f}%"
-    except Exception:
-        return "-"
-
-
-def bestimme_punkte_und_signaltext(signal, trade_score):
-    """
-    Liefert Farbpunkte und Signaltext für die Karten.
-    """
-    if signal == "Kaufen" and trade_score >= 80:
-        return "🟢🟢", "Neues Kaufsignal"
-    elif signal == "Kaufen":
-        return "🟢", "Kaufen"
-    elif signal == "Beobachten":
-        return "🟡", "Beobachten"
-    else:
-        return "🔴", "Kein Einstieg"
-
-
-def rendere_setup_karte(eintrag, feld_id):
-    ticker = eintrag.get("ticker", "-")
-    wkn = eintrag.get("wkn", "") or "-"
-    signal = eintrag.get("signal", "Beobachten")
-    trade_score = eintrag.get("trade_score", 0)
-    kurs = formatiere_kurs(eintrag.get("aktueller_kurs", "-"))
-    ziel = formatiere_kurs(eintrag.get("kursziel", "-"))
-    momentum = formatiere_prozent(eintrag.get("momentum_wert", "-"))
-    stop_loss = formatiere_kurs(eintrag.get("stop_loss", "-"))
-
-    punkte, signal_text = bestimme_punkte_und_signaltext(signal, trade_score)
-
-    karten_html = f"""
-    <div class="setup-card">
-        <div class="setup-dots">{punkte}</div>
-        <div class="setup-ticker">{ticker}</div>
-        <div class="setup-line"><strong>WKN:</strong> {wkn}</div>
-        <div class="setup-line"><strong>Signal:</strong> {signal_text}</div>
-        <div class="setup-line"><strong>Trade Score:</strong> {trade_score}/100</div>
-        <div class="setup-line"><strong>Kurs:</strong> {kurs}</div>
-        <div class="setup-line"><strong>Ziel:</strong> {ziel}</div>
-        <div class="setup-line"><strong>Momentum:</strong> {momentum}</div>
-        <div class="setup-line"><strong>Stop-Loss:</strong> {stop_loss}</div>
-    </div>
-    """
-    st.markdown(karten_html, unsafe_allow_html=True)
-
-
-# --------------------------------------------------
-# CSS Styling
+# CSS
 # --------------------------------------------------
 
 st.markdown(
     """
     <style>
+    section[data-testid="stSidebar"] {
+        background-color: #1b1f2a;
+    }
+
+    section[data-testid="stSidebar"] * {
+        color: #f2f2f2;
+    }
+
+    div[data-testid="stExpander"] details {
+        background: #111827;
+        border: 1px solid #2d3748;
+        border-radius: 12px;
+    }
+
+    div[data-testid="stExpander"] summary {
+        background: #111827;
+        color: #f2f2f2;
+        border-radius: 12px;
+    }
+
+    div[data-testid="stExpander"] details > div {
+        background: #111827;
+        color: #f2f2f2;
+    }
+
+    div[data-baseweb="select"] > div {
+        background-color: #111827;
+        color: #f2f2f2;
+    }
+
+    div[data-baseweb="select"] input {
+        color: #f2f2f2 !important;
+    }
+
+    div[data-baseweb="tag"] {
+        background-color: #b91c1c !important;
+        color: white !important;
+    }
+
+    .stSlider > div[data-baseweb="slider"] {
+        color: #f2f2f2;
+    }
+
     .setup-card {
         background: linear-gradient(180deg, #040816 0%, #020611 100%);
         border: 2px solid #cfcfcf;
         border-radius: 22px;
         padding: 24px 24px 22px 24px;
-        min-height: 420px;
+        min-height: 430px;
         color: #f4f4f4;
         box-shadow: 0 8px 24px rgba(0,0,0,0.18);
         margin-bottom: 14px;
@@ -106,8 +89,17 @@ st.markdown(
     .setup-ticker {
         font-size: 34px;
         font-weight: 800;
-        margin-bottom: 20px;
+        margin-bottom: 4px;
         letter-spacing: 0.4px;
+        color: #ffffff;
+    }
+
+    .setup-name {
+        font-size: 18px;
+        font-weight: 500;
+        color: #d6d6d6;
+        margin-bottom: 18px;
+        line-height: 1.3;
     }
 
     .setup-line {
@@ -129,20 +121,92 @@ st.markdown(
     }
 
     div[data-testid="stMetric"] {
-        background: #ffffff;
-        border-radius: 14px;
-        padding: 10px 14px;
-        border: 1px solid #ececec;
+        background: linear-gradient(180deg, #040816 0%, #020611 100%);
+        border-radius: 16px;
+        padding: 12px 16px;
+        border: 1px solid #2d3748;
+        color: #f4f4f4;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+    }
+
+    div[data-testid="stMetric"] label {
+        color: #cfd8e3 !important;
+    }
+
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: #ffffff !important;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
+# --------------------------------------------------
+# Hilfsfunktionen
+# --------------------------------------------------
+
+def formatiere_kurs(wert):
+    try:
+        return f"{float(wert):.2f}"
+    except Exception:
+        return "-"
+
+
+def formatiere_prozent(wert):
+    try:
+        return f"{float(wert):.2f}%"
+    except Exception:
+        return "-"
+
+
+def bestimme_punkte_und_signaltext(signal, trade_score):
+    if signal == "Kaufen" and trade_score >= 80:
+        return "🟢🟢", "Neues Kaufsignal"
+    elif signal == "Kaufen":
+        return "🟢", "Kaufen"
+    elif signal == "Beobachten":
+        return "🟡", "Beobachten"
+    else:
+        return "🔴", "Kein Einstieg"
+
+
+def rendere_setup_karte(eintrag):
+    ticker = eintrag.get("ticker", "-")
+    name = eintrag.get("name", "-")
+    wkn = eintrag.get("wkn", "") or "-"
+    signal = eintrag.get("signal", "Beobachten")
+    trade_score = eintrag.get("trade_score", 0)
+    kurs = formatiere_kurs(eintrag.get("aktueller_kurs", "-"))
+    ziel = formatiere_kurs(eintrag.get("kursziel", "-"))
+    momentum = formatiere_prozent(eintrag.get("momentum_wert", "-"))
+    stop_loss = formatiere_kurs(eintrag.get("stop_loss", "-"))
+
+    punkte, signal_text = bestimme_punkte_und_signaltext(signal, trade_score)
+
+    karten_html = f"""
+    <div class="setup-card">
+        <div class="setup-dots">{punkte}</div>
+        <div class="setup-ticker">{ticker}</div>
+        <div class="setup-name">{name}</div>
+        <div class="setup-line"><strong>WKN:</strong> {wkn}</div>
+        <div class="setup-line"><strong>Signal:</strong> {signal_text}</div>
+        <div class="setup-line"><strong>Trade Score:</strong> {trade_score}/100</div>
+        <div class="setup-line"><strong>Kurs:</strong> {kurs}</div>
+        <div class="setup-line"><strong>Ziel:</strong> {ziel}</div>
+        <div class="setup-line"><strong>Momentum:</strong> {momentum}</div>
+        <div class="setup-line"><strong>Stop-Loss:</strong> {stop_loss}</div>
+    </div>
+    """
+    st.markdown(karten_html, unsafe_allow_html=True)
+
+# --------------------------------------------------
+# Titel
+# --------------------------------------------------
+
 st.title("Trading Scanner 4.0")
 
 # --------------------------------------------------
-# Auswahlfelder
+# Sidebar
 # --------------------------------------------------
 
 with st.sidebar:
@@ -174,10 +238,14 @@ with st.sidebar:
         step=5
     )
 
+# --------------------------------------------------
+# Text
+# --------------------------------------------------
+
 st.write("Systemstatus und Marktanalyse")
 
 # --------------------------------------------------
-# Märkte laden
+# Marktdaten laden
 # --------------------------------------------------
 
 markt_daten = {}
@@ -193,7 +261,7 @@ for key, info in MARKT_INDIZES.items():
         markt_daten[key] = daten
 
 # --------------------------------------------------
-# Sektoren laden
+# Sektordaten laden
 # --------------------------------------------------
 
 sektor_ticker_map = {name: info["ticker"] for name, info in SEKTOREN.items()}
@@ -282,6 +350,10 @@ rohstoff_ranking = scanne_aktien(
     ROHSTOFFE
 )
 
+# --------------------------------------------------
+# Score Filter
+# --------------------------------------------------
+
 aktien_ranking = [
     eintrag for eintrag in aktien_ranking
     if eintrag.get("trade_score", 0) >= mindest_score
@@ -320,11 +392,14 @@ with col4:
 st.write(f"Geladene Aktien im Scanner: {len(aktien_liste)}")
 
 # --------------------------------------------------
-# Top Aktien
+# Top Trading Setups
 # --------------------------------------------------
 
 st.header(f"Top {top_n} Trading Setups")
-st.markdown('<div class="section-subtle">Die wichtigsten Signale kompakt und klar dargestellt.</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-subtle">Die wichtigsten Signale kompakt und klar dargestellt.</div>',
+    unsafe_allow_html=True
+)
 
 top_aktien = aktien_ranking[:top_n]
 
@@ -335,14 +410,13 @@ if top_aktien:
         spalten = st.columns(3)
 
     for i, aktie in enumerate(top_aktien):
-        spalte = spalten[i % len(spalten)]
-        with spalte:
-            rendere_setup_karte(aktie, f"aktie_{i}")
+        with spalten[i % len(spalten)]:
+            rendere_setup_karte(aktie)
 else:
     st.write("Keine Aktienergebnisse verfügbar.")
 
 # --------------------------------------------------
-# Top Rohstoffe
+# Top Rohstoff Setups
 # --------------------------------------------------
 
 st.header("Top 3 Rohstoff Setups")
@@ -350,18 +424,11 @@ st.header("Top 3 Rohstoff Setups")
 top_rohstoffe = rohstoff_ranking[:3]
 
 if top_rohstoffe:
-    col1, col2, col3 = st.columns(3)
+    rohstoff_spalten = st.columns(3)
 
-    with col1:
-        rendere_setup_karte(top_rohstoffe[0], "rohstoff_0")
-
-    if len(top_rohstoffe) > 1:
-        with col2:
-            rendere_setup_karte(top_rohstoffe[1], "rohstoff_1")
-
-    if len(top_rohstoffe) > 2:
-        with col3:
-            rendere_setup_karte(top_rohstoffe[2], "rohstoff_2")
+    for i, rohstoff in enumerate(top_rohstoffe):
+        with rohstoff_spalten[i]:
+            rendere_setup_karte(rohstoff)
 else:
     st.write("Keine Rohstoffergebnisse verfügbar.")
 
