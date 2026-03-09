@@ -1,144 +1,182 @@
-from indicators import berechne_sma
-from config import TEXTBAUSTEINE
+from __future__ import annotations
+
+from typing import Dict, List
+import pandas as pd
+
+from data_fetcher import get_historical_data
 
 
-def analysiere_einzelmarkt(daten):
+def _safe_last_scalar(value):
     """
-    Analysiert einen einzelnen Markt anhand von:
-    - Kurs über SMA50
-    - Kurs über SMA200
-    - SMA50 über SMA200
-
-    Rückgabe:
-    {
-        "score": 0 bis 3,
-        "kurs_ueber_sma50": True/False,
-        "kurs_ueber_sma200": True/False,
-        "sma50_ueber_sma200": True/False
-    }
+    Wandelt pandas Series / DataFrame / numpy scalar robust in einen float um.
+    Gibt None zurück, wenn kein sauberer Wert extrahiert werden kann.
     """
-    if daten.empty:
+    try:
+        if value is None:
+            return None
+
+        if isinstance(value, pd.DataFrame):
+            if value.empty:
+                return None
+            value = value.iloc[-1, 0]
+
+        elif isinstance(value, pd.Series):
+            if value.empty:
+                return None
+            value = value.iloc[-1]
+
+        if pd.isna(value):
+            return None
+
+        return float(value)
+    except Exception:
+        return None
+
+
+def analyze_market_regime(
+    benchmark_symbol: str = "^GSPC",
+    period: str = "1y",
+    interval: str = "1d",
+) -> Dict:
+    df = get_historical_data(benchmark_symbol, period=period, interval=interval)
+
+    if df is None or df.empty or "Close" not in df.columns:
         return {
-            "score": 0,
-            "kurs_ueber_sma50": False,
-            "kurs_ueber_sma200": False,
-            "sma50_ueber_sma200": False
+            "benchmark": benchmark_symbol,
+            "market_regime": "Neutral",
+            "status": "no_data",
+            "analysis_price": None,
+            "sma50": None,
+            "sma200": None,
         }
 
-    daten = berechne_sma(daten, 50)
-    daten = berechne_sma(daten, 200)
+    close = df["Close"]
 
-    daten = daten.dropna()
+    if isinstance(close, pd.DataFrame):
+        if close.empty:
+            return {
+                "benchmark": benchmark_symbol,
+                "market_regime": "Neutral",
+                "status": "no_data",
+                "analysis_price": None,
+                "sma50": None,
+                "sma200": None,
+            }
+        close = close.iloc[:, 0]
 
-    if daten.empty:
+    close = close.dropna()
+
+    if close.empty:
         return {
-            "score": 0,
-            "kurs_ueber_sma50": False,
-            "kurs_ueber_sma200": False,
-            "sma50_ueber_sma200": False
+            "benchmark": benchmark_symbol,
+            "market_regime": "Neutral",
+            "status": "no_data",
+            "analysis_price": None,
+            "sma50": None,
+            "sma200": None,
         }
 
-    letzter_close = float(daten["Close"].iloc[-1])
-    sma50 = float(daten["SMA_50"].iloc[-1])
-    sma200 = float(daten["SMA_200"].iloc[-1])
+    price = _safe_last_scalar(close)
+    sma50 = _safe_last_scalar(close.rolling(50).mean())
+    sma200 = _safe_last_scalar(close.rolling(200).mean())
 
-    kurs_ueber_sma50 = letzter_close > sma50
-    kurs_ueber_sma200 = letzter_close > sma200
-    sma50_ueber_sma200 = sma50 > sma200
-
-    score = 0
-    if kurs_ueber_sma50:
-        score += 1
-    if kurs_ueber_sma200:
-        score += 1
-    if sma50_ueber_sma200:
-        score += 1
+    if price is None or sma50 is None or sma200 is None:
+        regime = "Neutral"
+    elif price > sma50 > sma200:
+        regime = "Bullish"
+    elif price < sma50 < sma200:
+        regime = "Bearish"
+    else:
+        regime = "Neutral"
 
     return {
-        "score": score,
-        "kurs_ueber_sma50": kurs_ueber_sma50,
-        "kurs_ueber_sma200": kurs_ueber_sma200,
-        "sma50_ueber_sma200": sma50_ueber_sma200
+        "benchmark": benchmark_symbol,
+        "analysis_price": round(price, 2) if price is not None else None,
+        "sma50": round(sma50, 2) if sma50 is not None else None,
+        "sma200": round(sma200, 2) if sma200 is not None else None,
+        "market_regime": regime,
+        "status": "ok",
     }
 
 
-def analysiere_gesamtmarkt(markt_daten):
-    """
-    Erwartet ein Dictionary:
-    {
-        "USA_SP500": DataFrame,
-        "USA_NASDAQ100": DataFrame,
-        ...
-    }
+def analyze_universe_market_breadth(
+    symbols: List[str],
+    period: str = "6mo",
+    interval: str = "1d",
+) -> Dict:
+    if not symbols:
+        return {
+            "count": 0,
+            "pct_above_sma50": 0.0,
+            "pct_golden_cross": 0.0,
+        }
 
-    Rückgabe:
-    {
-        "marktstatus": "Bullish",
-        "crashrisiko": "Niedrig",
-        "gesamt_score": ...,
-        "max_score": ...,
-        "details": {...}
-    }
-    """
-    details = {}
-    gesamt_score = 0
-    max_score = 0
-    anzahl_unter_sma200 = 0
+    total = 0
+    above_sma50 = 0
+    golden_cross = 0
 
-    for markt_name, daten in markt_daten.items():
-        ergebnis = analysiere_einzelmarkt(daten)
-        details[markt_name] = ergebnis
+    for symbol in symbols:
+        df = get_historical_data(symbol, period=period, interval=interval)
 
-        gesamt_score += ergebnis["score"]
-        max_score += 3
+        if df is None or df.empty or "Close" not in df.columns:
+            continue
 
-        if not ergebnis["kurs_ueber_sma200"]:
-            anzahl_unter_sma200 += 1
+        close = df["Close"]
 
-    if max_score == 0:
-        marktstatus = TEXTBAUSTEINE["markt_neutral"]
-    else:
-        score_quote = gesamt_score / max_score
+        if isinstance(close, pd.DataFrame):
+            if close.empty:
+                continue
+            close = close.iloc[:, 0]
 
-        if score_quote >= 0.7:
-            marktstatus = TEXTBAUSTEINE["markt_bullish"]
-        elif score_quote >= 0.4:
-            marktstatus = TEXTBAUSTEINE["markt_neutral"]
-        else:
-            marktstatus = TEXTBAUSTEINE["markt_bearish"]
+        close = close.dropna()
 
-    anzahl_maerkte = len(markt_daten)
+        if close.empty:
+            continue
 
-    if anzahl_maerkte == 0:
-        crashrisiko = TEXTBAUSTEINE["crash_mittel"]
-    else:
-        quote_unter_sma200 = anzahl_unter_sma200 / anzahl_maerkte
+        price = _safe_last_scalar(close)
+        sma50 = _safe_last_scalar(close.rolling(50).mean())
+        sma200 = _safe_last_scalar(close.rolling(200).mean())
 
-        if quote_unter_sma200 >= 0.6:
-            crashrisiko = TEXTBAUSTEINE["crash_hoch"]
-        elif quote_unter_sma200 >= 0.3:
-            crashrisiko = TEXTBAUSTEINE["crash_mittel"]
-        else:
-            crashrisiko = TEXTBAUSTEINE["crash_niedrig"]
+        if price is None:
+            continue
 
-    ausstieg = bestimme_ausstieg(crashrisiko)
+        total += 1
+
+        if sma50 is not None and price > sma50:
+            above_sma50 += 1
+
+        if sma50 is not None and sma200 is not None and sma50 > sma200:
+            golden_cross += 1
+
+    if total == 0:
+        return {
+            "count": 0,
+            "pct_above_sma50": 0.0,
+            "pct_golden_cross": 0.0,
+        }
 
     return {
-        "marktstatus": marktstatus,
-        "crashrisiko": crashrisiko,
-        "ausstieg": ausstieg,
-        "gesamt_score": gesamt_score,
-        "max_score": max_score,
-        "details": details
+        "count": total,
+        "pct_above_sma50": round((above_sma50 / total) * 100.0, 2),
+        "pct_golden_cross": round((golden_cross / total) * 100.0, 2),
     }
 
-def bestimme_ausstieg(crashrisiko):
 
-    if crashrisiko == "Niedrig":
-        return "Halten"
+def derive_risk_level(breadth: Dict) -> str:
+    pct = breadth.get("pct_above_sma50", 0)
 
-    elif crashrisiko == "Mittel":
-        return "Gewinne sichern"
+    if pct >= 70:
+        return "Niedrig"
+    if pct >= 45:
+        return "Mittel"
+    return "Hoch"
 
-    else:
-        return "Ausstieg prüfen"
+
+def derive_action_signal(regime: str, breadth: Dict) -> str:
+    pct = breadth.get("pct_above_sma50", 0)
+
+    if regime == "Bullish" and pct >= 60:
+        return "Longs bevorzugen"
+    if regime == "Bearish":
+        return "Defensiv bleiben"
+    return "Gewinne sichern"

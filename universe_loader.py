@@ -1,92 +1,98 @@
-import streamlit as st
+from __future__ import annotations
 
-from config import (
-    NASDAQ100_AKTIEN,
-    SP500_PROXY_AKTIEN,
-    DAX_AKTIEN,
-    CHINA_PROXY_AKTIEN,
-    EM_PROXY_AKTIEN
-)
+from typing import Dict, List
+from config import UNIVERSES
 
 
-# --------------------------------------------------
-# Nasdaq 100
-# --------------------------------------------------
+ALL_UNIVERSE_NAME = "Alle"
+EUROPE_UNIVERSE_NAME = "Europa Listings"
+COMMODITIES_UNIVERSE_NAME = "Rohstoffe"
 
-@st.cache_data(ttl=86400)
-def lade_nasdaq100_universum():
+
+def get_available_universes() -> List[str]:
     """
-    Nutzt die feste Nasdaq-100-Fallback-Liste aus config.py
+    Liefert die Auswahl für die Sidebar.
+    'Alle' steht immer an erster Stelle.
     """
-    return NASDAQ100_AKTIEN
+    return [ALL_UNIVERSE_NAME] + list(UNIVERSES.keys())
 
 
-# --------------------------------------------------
-# S&P 500
-# --------------------------------------------------
+def _dedupe_keep_order(symbols: List[str]) -> List[str]:
+    seen = set()
+    result: List[str] = []
 
-@st.cache_data(ttl=86400)
-def lade_sp500_universum():
+    for symbol in symbols:
+        if symbol not in seen:
+            seen.add(symbol)
+            result.append(symbol)
+
+    return result
+
+
+def load_universe(
+    name: str,
+    include_europe_listings: bool = True,
+    include_commodities_in_all: bool = False,
+) -> List[str]:
     """
-    Nutzt die feste S&P-500-Proxy-Liste aus config.py
+    Lädt ein einzelnes Universe.
+
+    Spezialfall 'Alle':
+    - nimmt standardmäßig alle Aktien-Universen zusammen
+    - europäische Listings können optional mit rein
+    - Rohstoffe werden standardmäßig ausgeschlossen,
+      weil sie in der App separat gescannt werden
     """
-    return SP500_PROXY_AKTIEN
+
+    if name != ALL_UNIVERSE_NAME:
+        return UNIVERSES.get(name, []).copy()
+
+    symbols: List[str] = []
+
+    for universe_name, universe_symbols in UNIVERSES.items():
+        # Rohstoffe standardmäßig NICHT in "Alle"
+        if universe_name == COMMODITIES_UNIVERSE_NAME and not include_commodities_in_all:
+            continue
+
+        # Europa Listings optional ein-/ausschließen
+        if universe_name == EUROPE_UNIVERSE_NAME and not include_europe_listings:
+            continue
+
+        symbols.extend(universe_symbols)
+
+    return _dedupe_keep_order(symbols)
 
 
-# --------------------------------------------------
-# DAX
-# --------------------------------------------------
-
-@st.cache_data(ttl=86400)
-def lade_dax_universum():
+def load_all_universes() -> Dict[str, List[str]]:
     """
-    Nutzt die feste DAX-Liste aus config.py
+    Gibt alle definierten Universen 1:1 zurück.
     """
-    return DAX_AKTIEN
+    return {k: v.copy() for k, v in UNIVERSES.items()}
 
 
-# --------------------------------------------------
-# China
-# --------------------------------------------------
-
-@st.cache_data(ttl=86400)
-def lade_china_universum():
+def load_all_equities(
+    include_europe_listings: bool = True,
+) -> List[str]:
     """
-    Nutzt die feste China-Proxy-Liste aus config.py
+    Komfortfunktion:
+    Lädt alle Aktien-Universen ohne Rohstoffe.
     """
-    return CHINA_PROXY_AKTIEN
+    return load_universe(
+        ALL_UNIVERSE_NAME,
+        include_europe_listings=include_europe_listings,
+        include_commodities_in_all=False,
+    )
 
 
-# --------------------------------------------------
-# Emerging Markets
-# --------------------------------------------------
-
-@st.cache_data(ttl=86400)
-def lade_em_universum():
+def load_all_with_commodities(
+    include_europe_listings: bool = True,
+) -> List[str]:
     """
-    Nutzt die feste Emerging-Markets-Proxy-Liste aus config.py
+    Komfortfunktion:
+    Lädt wirklich alles inklusive Rohstoffe.
     """
-    return EM_PROXY_AKTIEN
-
-
-# --------------------------------------------------
-# Universen kombinieren
-# --------------------------------------------------
-
-def kombiniere_universen(lists_of_dicts):
-    """
-    Führt mehrere Universen zusammen und entfernt doppelte Ticker.
-    """
-    gesammelt = {}
-
-    for liste in lists_of_dicts:
-        for eintrag in liste:
-            ticker = str(eintrag.get("ticker", "")).strip()
-
-            if not ticker:
-                continue
-
-            if ticker not in gesammelt:
-                gesammelt[ticker] = eintrag
-
-    return list(gesammelt.values())
+    return load_universe(
+        ALL_UNIVERSE_NAME,
+        include_europe_listings=include_europe_listings,
+        include_commodities_in_all=True,
+    )

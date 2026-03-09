@@ -1,486 +1,526 @@
+from __future__ import annotations
+
+import pandas as pd
 import streamlit as st
 
-from config import MARKT_INDIZES, SEKTOREN, AKTIEN_UNIVERSUM, ROHSTOFFE
-from data_fetcher import lade_einzeldaten, lade_mehrere_ticker_batch
-from market_analysis import analysiere_gesamtmarkt
-from sector_analysis import analysiere_sektoren
-from stock_scanner import scanne_aktien
-from universe_loader import (
-    lade_sp500_universum,
-    lade_nasdaq100_universum,
-    lade_dax_universum,
-    lade_china_universum,
-    lade_em_universum,
-    kombiniere_universen
-)
+from config import APP_NAME, APP_SUBTITLE
+from universe_loader import get_available_universes, load_universe
+from stock_scanner import scan_symbols, filter_top_candidates
+from data_fetcher import enrich_with_live_prices
+from market_analysis import analyze_market_regime, derive_risk_level, derive_action_signal
+from sector_analysis import rank_sectors, get_top_sector_label
+from portfolio_utils import analyze_portfolio
 
-def refresh_data():
-    st.cache_data.clear()
 
 st.set_page_config(
-    page_title="Trading Scanner 4.0",
-    layout="wide"
+    page_title=APP_NAME,
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
-
-# --------------------------------------------------
-# CSS
-# --------------------------------------------------
 
 st.markdown(
     """
-    <style>
-    section[data-testid="stSidebar"] {
-        background-color: #1b1f2a;
-    }
+<style>
+.main {
+    background-color: #f3f5f8;
+}
 
-    section[data-testid="stSidebar"] * {
-        color: #f2f2f2;
-    }
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #141a2b 0%, #1b2337 100%);
+}
 
-    div[data-testid="stExpander"] details {
-        background: #111827;
-        border: 1px solid #2d3748;
-        border-radius: 12px;
-    }
+section[data-testid="stSidebar"] * {
+    color: white !important;
+}
 
-    div[data-testid="stExpander"] summary {
-        background: #111827;
-        color: #f2f2f2;
-        border-radius: 12px;
-    }
+/* Selectbox lesbar */
+section[data-testid="stSidebar"] div[data-baseweb="select"] {
+    background: white !important;
+    border-radius: 8px !important;
+}
 
-    div[data-testid="stExpander"] details > div {
-        background: #111827;
-        color: #f2f2f2;
-    }
+section[data-testid="stSidebar"] div[data-baseweb="select"] * {
+    color: #0b1220 !important;
+}
 
-    div[data-baseweb="select"] > div {
-        background-color: #111827;
-        color: #f2f2f2;
-    }
+/* Checkbox / Slider */
+section[data-testid="stSidebar"] .stCheckbox label,
+section[data-testid="stSidebar"] .stCheckbox div {
+    color: white !important;
+}
 
-    div[data-baseweb="select"] input {
-        color: #f2f2f2 !important;
-    }
+section[data-testid="stSidebar"] .stSlider span {
+    color: white !important;
+}
 
-    div[data-baseweb="tag"] {
-        background-color: #b91c1c !important;
-        color: white !important;
-    }
+/* Buttons */
+section[data-testid="stSidebar"] button {
+    color: #0b1220 !important;
+    background-color: white !important;
+    border: 1px solid #d0d7e2 !important;
+    font-weight: 700 !important;
+}
 
-    .stSlider > div[data-baseweb="slider"] {
-        color: #f2f2f2;
-    }
+section[data-testid="stSidebar"] button p {
+    color: #0b1220 !important;
+}
 
-    .setup-card {
-        background: linear-gradient(180deg, #040816 0%, #020611 100%);
-        border: 2px solid #cfcfcf;
-        border-radius: 22px;
-        padding: 24px 24px 22px 24px;
-        min-height: 430px;
-        color: #f4f4f4;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-        margin-bottom: 14px;
-    }
+/* Header */
+.app-title {
+    font-size: 2.6rem;
+    font-weight: 800;
+    color: #182033;
+    margin-bottom: 0.1rem;
+}
 
-    .setup-dots {
-        font-size: 40px;
-        line-height: 1;
-        margin-bottom: 18px;
-    }
+.app-subtitle {
+    color: #667085;
+    font-size: 0.9rem;
+    margin-bottom: 1.2rem;
+}
 
-    .setup-ticker {
-        font-size: 34px;
-        font-weight: 800;
-        margin-bottom: 4px;
-        letter-spacing: 0.4px;
-        color: #ffffff;
-    }
+.app-note {
+    color: #667085;
+    font-size: 0.82rem;
+    margin-top: -0.3rem;
+    margin-bottom: 1rem;
+}
 
-    .setup-name {
-        font-size: 18px;
-        font-weight: 500;
-        color: #d6d6d6;
-        margin-bottom: 18px;
-        line-height: 1.3;
-    }
+/* Metrics */
+.metric-card {
+    background: linear-gradient(180deg, #02081c 0%, #020816 100%);
+    border-radius: 14px;
+    padding: 1rem;
+    color: white;
+    min-height: 88px;
+}
 
-    .setup-line {
-        font-size: 18px;
-        line-height: 1.55;
-        margin-bottom: 4px;
-        color: #f2f2f2;
-    }
+.metric-label {
+    color: #b9c0d4;
+    font-size: 0.8rem;
+}
 
-    .setup-line strong {
-        color: #ffffff;
-    }
+.metric-value {
+    font-size: 1.2rem;
+    font-weight: 800;
+}
 
-    .section-subtle {
-        margin-top: -8px;
-        margin-bottom: 18px;
-        color: #666666;
-        font-size: 14px;
-    }
+/* Setup Cards */
+.setup-card {
+    background: linear-gradient(180deg, #010716 0%, #010818 100%);
+    border-radius: 18px;
+    padding: 1rem;
+    color: white;
+    min-height: 300px;
+}
 
-    div[data-testid="stMetric"] {
-        background: linear-gradient(180deg, #040816 0%, #020611 100%);
-        border-radius: 16px;
-        padding: 12px 16px;
-        border: 1px solid #2d3748;
-        color: #f4f4f4;
-        box-shadow: 0 6px 18px rgba(0,0,0,0.18);
-    }
+.setup-symbol {
+    font-size: 2rem;
+    font-weight: 800;
+}
 
-    div[data-testid="stMetric"] label {
-        color: #cfd8e3 !important;
-    }
+.setup-line {
+    font-size: 0.92rem;
+    margin-bottom: 3px;
+}
 
-    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-        color: #ffffff !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
+.dot-row {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.dot-green, .dot-yellow, .dot-red {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: inline-block;
+}
+
+.dot-green { background: #19d60a; }
+.dot-yellow { background: #f7e000; }
+.dot-red { background: #ff3b30; }
+
+.section-gap-small { height: 10px; }
+.section-gap-medium { height: 22px; }
+.section-gap-large { height: 34px; }
+
+.soft-info {
+    color: #667085;
+    font-size: 0.82rem;
+    margin-top: 0.25rem;
+    margin-bottom: 0.6rem;
+}
+
+div[data-testid="stExpander"] {
+    margin-top: 10px !important;
+    margin-bottom: 12px !important;
+}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-# --------------------------------------------------
-# Hilfsfunktionen
-# --------------------------------------------------
 
-def formatiere_kurs(wert):
-    try:
-        return f"{float(wert):.2f}"
-    except Exception:
+def fmt_value(value, decimals: int = 2, suffix: str = "") -> str:
+    if value is None or pd.isna(value):
         return "-"
+    return f"{value:.{decimals}f}{suffix}"
 
 
-def formatiere_prozent(wert):
+def get_dot_html(row: pd.Series) -> str:
+    dots = []
+
+    if bool(row.get("golden_cross", False)):
+        dots.append('<span class="dot-green"></span>')
+
+    score = row.get("trade_score", 0)
     try:
-        return f"{float(wert):.2f}%"
+        score = float(score)
     except Exception:
-        return "-"
+        score = 0.0
 
-
-def bestimme_punkte_und_signaltext(signal, trade_score):
-    if signal == "Kaufen" and trade_score >= 80:
-        return "🟢🟢", "Neues Kaufsignal"
-    elif signal == "Kaufen":
-        return "🟢", "Kaufen"
-    elif signal == "Beobachten":
-        return "🟡", "Beobachten"
+    if score >= 80:
+        dots.append('<span class="dot-green"></span>')
+    elif score >= 65:
+        dots.append('<span class="dot-yellow"></span>')
     else:
-        return "🔴", "Kein Einstieg"
+        dots.append('<span class="dot-red"></span>')
+
+    return f'<div class="dot-row">{"".join(dots)}</div>'
 
 
-def rendere_setup_karte(eintrag):
-    ticker = eintrag.get("ticker", "-")
-    name = eintrag.get("name", "-")
-    wkn = eintrag.get("wkn", "") or "-"
-    signal = eintrag.get("signal", "Beobachten")
-    trade_score = eintrag.get("trade_score", 0)
-    kurs = formatiere_kurs(eintrag.get("aktueller_kurs", "-"))
-    ziel = formatiere_kurs(eintrag.get("kursziel", "-"))
-    momentum = formatiere_prozent(eintrag.get("momentum_wert", "-"))
-    stop_loss = formatiere_kurs(eintrag.get("stop_loss", "-"))
+def render_metric(label: str, value: str) -> None:
+    st.markdown(
+        f"""
+<div class="metric-card">
+    <div class="metric-label">{label}</div>
+    <div class="metric-value">{value}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
-    punkte, signal_text = bestimme_punkte_und_signaltext(signal, trade_score)
 
-    karten_html = f"""
-    <div class="setup-card">
-        <div class="setup-dots">{punkte}</div>
-        <div class="setup-ticker">{ticker}</div>
-        <div class="setup-name">{name}</div>
-        <div class="setup-line"><strong>WKN:</strong> {wkn}</div>
-        <div class="setup-line"><strong>Signal:</strong> {signal_text}</div>
-        <div class="setup-line"><strong>Trade Score:</strong> {trade_score}/100</div>
-        <div class="setup-line"><strong>Kurs:</strong> {kurs}</div>
-        <div class="setup-line"><strong>Ziel:</strong> {ziel}</div>
-        <div class="setup-line"><strong>Momentum:</strong> {momentum}</div>
-        <div class="setup-line"><strong>Stop-Loss:</strong> {stop_loss}</div>
-    </div>
-    """
-    st.markdown(karten_html, unsafe_allow_html=True)
+def render_setup_card(row: pd.Series) -> None:
+    market_price = row.get("market_price")
+    analysis_price = row.get("analysis_price")
+    source = row.get("market_price_source")
+    signal = row.get("signal", "-")
 
-# --------------------------------------------------
-# Titel
-# --------------------------------------------------
+    if market_price is not None and not pd.isna(market_price):
+        price_label = "Aktuell"
+        price_value = fmt_value(market_price)
+    else:
+        price_label = "Analysepreis"
+        price_value = fmt_value(analysis_price)
 
-st.title("Trading Scanner 4.0")
+    source_text = source if source not in [None, ""] else "-"
 
-# --------------------------------------------------
-# Sidebar
-# --------------------------------------------------
+    st.markdown(
+        f"""
+<div class="setup-card">
+    {get_dot_html(row)}
+    <div class="setup-symbol">{row.get("symbol", "-")}</div>
+    <div class="setup-line">{row.get("name", "-")}</div>
+    <div class="setup-line"><b>WKN:</b> {row.get("wkn", "-")}</div>
+    <div class="setup-line"><b>Signal:</b> {signal}</div>
+    <div class="setup-line"><b>Trade Score:</b> {fmt_value(row.get("trade_score"), 0)}/100</div>
+    <div class="setup-line"><b>{price_label}:</b> {price_value}</div>
+    <div class="setup-line"><b>Analysepreis:</b> {fmt_value(analysis_price)}</div>
+    <div class="setup-line"><b>Ziel:</b> {fmt_value(row.get("target_price"))}</div>
+    <div class="setup-line"><b>Momentum:</b> {fmt_value(row.get("momentum"), 2, "%")}</div>
+    <div class="setup-line"><b>Stop-Loss:</b> {fmt_value(row.get("stop_loss"))}</div>
+    <div class="setup-line"><b>Quelle:</b> {source_text}</div>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def get_valid_rows(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    result = df.copy()
+
+    if "status" in result.columns:
+        result = result[result["status"] == "ok"]
+
+    if "trade_score" in result.columns:
+        result["trade_score"] = pd.to_numeric(result["trade_score"], errors="coerce")
+        result = result.dropna(subset=["trade_score"])
+
+    return result.reset_index(drop=True)
+
+
+def prepare_visible_cards(df: pd.DataFrame, n: int) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    visible = df.head(n).copy()
+    visible = enrich_with_live_prices(visible)
+    return visible
+
+
+def derive_breadth_from_scan(df: pd.DataFrame) -> dict:
+    if df is None or df.empty:
+        return {
+            "count": 0,
+            "pct_above_sma50": 0.0,
+            "pct_golden_cross": 0.0,
+        }
+
+    temp = df.copy()
+
+    if "analysis_price" not in temp.columns or "sma50" not in temp.columns:
+        return {
+            "count": len(temp),
+            "pct_above_sma50": 0.0,
+            "pct_golden_cross": 0.0,
+        }
+
+    temp["analysis_price"] = pd.to_numeric(temp["analysis_price"], errors="coerce")
+    temp["sma50"] = pd.to_numeric(temp["sma50"], errors="coerce")
+    valid = temp.dropna(subset=["analysis_price", "sma50"]).copy()
+
+    if valid.empty:
+        return {
+            "count": len(temp),
+            "pct_above_sma50": 0.0,
+            "pct_golden_cross": 0.0,
+        }
+
+    above_sma50 = (valid["analysis_price"] > valid["sma50"]).mean() * 100.0
+
+    pct_gc = 0.0
+    if "golden_cross" in valid.columns:
+        pct_gc = valid["golden_cross"].fillna(False).astype(bool).mean() * 100.0
+
+    return {
+        "count": len(valid),
+        "pct_above_sma50": round(float(above_sma50), 2),
+        "pct_golden_cross": round(float(pct_gc), 2),
+    }
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_core_data(
+    symbols_key: tuple[str, ...],
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    symbols = list(symbols_key)
+
+    scan_df = scan_symbols(
+        symbols,
+        max_workers=8,
+        fetch_live_prices=False,
+    )
+
+    rohstoffe = load_universe("Rohstoffe")
+    rohstoffe_df = scan_symbols(
+        rohstoffe,
+        max_workers=5,
+        fetch_live_prices=False,
+    )
+
+    market = analyze_market_regime()
+
+    return scan_df, rohstoffe_df, market
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_portfolio_data(enabled: bool) -> pd.DataFrame:
+    if not enabled:
+        return pd.DataFrame()
+    return analyze_portfolio()
+
+
+def get_marketchart_view(df: pd.DataFrame, add_live_prices: bool) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    result = df.copy()
+
+    if add_live_prices:
+        # Nur die ersten 40 Zeilen mit Live-Daten anreichern, um die UI flott zu halten
+        top_part = result.head(40).copy()
+        rest_part = result.iloc[40:].copy()
+
+        top_part = enrich_with_live_prices(top_part)
+        result = pd.concat([top_part, rest_part], ignore_index=True)
+
+    preview_cols = [
+        "symbol",
+        "name",
+        "sector",
+        "status",
+        "analysis_price",
+        "market_price",
+        "price_gap_pct",
+        "market_price_source",
+        "momentum",
+        "relative_strength",
+        "golden_cross",
+        "trade_score",
+        "target_price",
+        "stop_loss",
+        "signal",
+    ]
+    show = [c for c in preview_cols if c in result.columns]
+    return result[show]
+
 
 with st.sidebar:
-    st.header("Steuerung")
+    st.markdown("## Steuerung")
 
-    if st.button("🔄 Daten aktualisieren"):
-        st.cache_data.clear()
-        st.rerun()
+    refresh = st.button("🔄 Aktualisieren", use_container_width=True)
 
-    ausgewaehlte_universen = st.multiselect(
-        "Aktienuniversen auswählen",
-        [
-            "Nasdaq 100",
-            "S&P 500",
-            "DAX 40",
-            "China Large Caps",
-            "Entwicklungsländer"
-        ],
-        default=["Nasdaq 100"]
+    universe_name = st.selectbox(
+        "Aktienuniversum auswählen",
+        get_available_universes(),
+        index=0,
+    )
+
+    include_europe_listings = st.checkbox(
+        "Europa Listings einbeziehen",
+        value=True,
+    )
+
+    load_portfolio_monitor = st.checkbox(
+        "Portfolio Monitor laden",
+        value=False,
+    )
+
+    add_live_prices_to_markettable = st.checkbox(
+        "Live-Kurse in Marktcharts",
+        value=False,
     )
 
     top_n = st.selectbox(
         "Anzahl Top-Trades",
         [3, 5, 10],
-        index=0
+        index=0,
     )
 
-    mindest_score = st.slider(
+    min_trade_score = st.slider(
         "Mindest-Trade-Score",
-        min_value=0,
-        max_value=100,
-        value=60,
-        step=5
+        0,
+        100,
+        60,
     )
 
-# --------------------------------------------------
-# Text
-# --------------------------------------------------
+    st.caption("Live-Kurse und Analysepreise werden getrennt verarbeitet.")
 
-st.write("Systemstatus und Marktanalyse")
+if refresh:
+    st.cache_data.clear()
 
-# --------------------------------------------------
-# Marktdaten laden
-# --------------------------------------------------
-
-markt_daten = {}
-
-for key, info in MARKT_INDIZES.items():
-    ticker = info["ticker"]
-    name = info["name"]
-
-    with st.spinner(f"Lade Markt {name}..."):
-        daten = lade_einzeldaten(ticker)
-
-    if not daten.empty:
-        markt_daten[key] = daten
-
-# --------------------------------------------------
-# Sektordaten laden
-# --------------------------------------------------
-
-sektor_ticker_map = {name: info["ticker"] for name, info in SEKTOREN.items()}
-sektor_ticker_liste = list(sektor_ticker_map.values())
-
-with st.spinner("Lade Sektordaten im Batch-Modus..."):
-    sektor_batch = lade_mehrere_ticker_batch(sektor_ticker_liste)
-
-sektor_daten = {}
-
-for sektor_name, ticker in sektor_ticker_map.items():
-    if ticker in sektor_batch:
-        sektor_daten[sektor_name] = sektor_batch[ticker]
-
-# --------------------------------------------------
-# Universen laden
-# --------------------------------------------------
-
-universumslisten = []
-
-if "Nasdaq 100" in ausgewaehlte_universen:
-    with st.spinner("Lade Nasdaq-100-Universum..."):
-        universumslisten.append(lade_nasdaq100_universum())
-
-if "S&P 500" in ausgewaehlte_universen:
-    with st.spinner("Lade S&P-500-Universum..."):
-        universumslisten.append(lade_sp500_universum())
-
-if "DAX 40" in ausgewaehlte_universen:
-    with st.spinner("Lade DAX-40-Universum..."):
-        universumslisten.append(lade_dax_universum())
-
-if "China Large Caps" in ausgewaehlte_universen:
-    with st.spinner("Lade China-Universum..."):
-        universumslisten.append(lade_china_universum())
-
-if "Entwicklungsländer" in ausgewaehlte_universen:
-    with st.spinner("Lade EM-Universum..."):
-        universumslisten.append(lade_em_universum())
-
-if universumslisten:
-    aktien_liste = kombiniere_universen(universumslisten)
-
-    if not aktien_liste:
-        st.warning("Universum leer – nutze Fallback-Liste.")
-        aktien_liste = AKTIEN_UNIVERSUM
-else:
-    aktien_liste = AKTIEN_UNIVERSUM
-
-# --------------------------------------------------
-# Aktiendaten laden
-# --------------------------------------------------
-
-aktien_ticker = [aktie["ticker"] for aktie in aktien_liste]
-
-with st.spinner(f"Lade {len(aktien_ticker)} Aktien im Batch-Modus..."):
-    aktien_daten = lade_mehrere_ticker_batch(aktien_ticker)
-
-# --------------------------------------------------
-# Rohstoffdaten laden
-# --------------------------------------------------
-
-rohstoff_ticker = [rohstoff["ticker"] for rohstoff in ROHSTOFFE]
-
-with st.spinner("Lade Rohstoffdaten im Batch-Modus..."):
-    rohstoff_daten = lade_mehrere_ticker_batch(rohstoff_ticker)
-
-# --------------------------------------------------
-# Analysen
-# --------------------------------------------------
-
-analyse = analysiere_gesamtmarkt(markt_daten)
-sektor_analyse = analysiere_sektoren(sektor_daten)
-
-aktien_ranking = scanne_aktien(
-    aktien_daten,
-    sektor_analyse,
-    markt_daten,
-    aktien_liste
-)
-
-rohstoff_ranking = scanne_aktien(
-    rohstoff_daten,
-    sektor_analyse,
-    markt_daten,
-    ROHSTOFFE
-)
-
-# --------------------------------------------------
-# Score Filter
-# --------------------------------------------------
-
-aktien_ranking = [
-    eintrag for eintrag in aktien_ranking
-    if eintrag.get("trade_score", 0) >= mindest_score
-]
-
-rohstoff_ranking = [
-    eintrag for eintrag in rohstoff_ranking
-    if eintrag.get("trade_score", 0) >= mindest_score
-]
-
-# --------------------------------------------------
-# Marktübersicht
-# --------------------------------------------------
-
-st.header("Marktübersicht")
-
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    st.metric("Marktstatus", analyse.get("marktstatus", "-"))
-
-with col2:
-    st.metric("Crashrisiko", analyse.get("crashrisiko", "-"))
-
-with col3:
-    if sektor_analyse.get("top_sektor"):
-        sektor = sektor_analyse["top_sektor"]["sektor"]
-        score = sektor_analyse["top_sektor"]["score"]
-        st.metric("Top Sektor", f"{sektor} ({score}/4)")
-    else:
-        st.metric("Top Sektor", "Keine Daten")
-
-with col4:
-    st.metric("Ausstiegssignal", analyse.get("ausstieg", "-"))
-
-st.write(f"Geladene Aktien im Scanner: {len(aktien_liste)}")
-
-# --------------------------------------------------
-# Top Trading Setups
-# --------------------------------------------------
-
-st.header(f"Top {top_n} Trading Setups")
+st.markdown(f'<div class="app-title">{APP_NAME}</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="app-subtitle">{APP_SUBTITLE}</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="section-subtle">Die wichtigsten Signale kompakt und klar dargestellt.</div>',
-    unsafe_allow_html=True
+    '<div class="app-note">Ultra-Version: Historie wird schnell gescannt, Live-Kurse werden nur gezielt nachgeladen.</div>',
+    unsafe_allow_html=True,
 )
 
-top_aktien = aktien_ranking[:top_n]
+try:
+    symbols = load_universe(
+        universe_name,
+        include_europe_listings=include_europe_listings,
+        include_commodities_in_all=False,
+    )
 
-if top_aktien:
-    if top_n <= 3:
-        spalten = st.columns(top_n)
+    with st.spinner("Scanner lädt Marktdaten..."):
+        scan_df, rohstoffe_df, market = load_core_data(tuple(symbols))
+        portfolio_df = load_portfolio_data(load_portfolio_monitor)
+
+        valid_scan_df = get_valid_rows(scan_df)
+        valid_rohstoffe_df = get_valid_rows(rohstoffe_df)
+
+        breadth = derive_breadth_from_scan(valid_scan_df)
+        sector_df = rank_sectors(valid_scan_df)
+
+    top_trading = filter_top_candidates(valid_scan_df, min_trade_score).head(top_n)
+    top_rohstoffe = filter_top_candidates(valid_rohstoffe_df, min_trade_score).head(top_n)
+
+    top_trading_live = prepare_visible_cards(top_trading, top_n)
+    top_rohstoffe_live = prepare_visible_cards(top_rohstoffe, top_n)
+
+    market_status = market.get("market_regime", "Neutral")
+    risk_level = derive_risk_level(breadth)
+    top_sector = get_top_sector_label(valid_scan_df)
+    action_signal = derive_action_signal(market_status, breadth)
+
+    st.header("Marktübersicht")
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        render_metric("Marktstatus", market_status)
+    with c2:
+        render_metric("Risiko", risk_level)
+    with c3:
+        render_metric("Top Sektor", top_sector)
+    with c4:
+        render_metric("Aktivsignal", action_signal)
+
+    st.markdown(
+        f'<div class="soft-info">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)} | Europa Listings: {"an" if include_europe_listings else "aus"}</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.header(f"Top {top_n} Trading Setups")
+
+    cols = st.columns(top_n)
+    for i in range(top_n):
+        with cols[i]:
+            if i < len(top_trading_live):
+                render_setup_card(top_trading_live.iloc[i])
+
+    if top_trading_live.empty:
+        st.warning("Für das gewählte Universum wurden aktuell keine gültigen Trading-Setups gefunden.")
+
+    st.markdown('<div class="section-gap-medium"></div>', unsafe_allow_html=True)
+
+    st.header(f"Top {top_n} Rohstoff Setups")
+
+    cols = st.columns(top_n)
+    for i in range(top_n):
+        with cols[i]:
+            if i < len(top_rohstoffe_live):
+                render_setup_card(top_rohstoffe_live.iloc[i])
+
+    if top_rohstoffe_live.empty:
+        st.warning("Aktuell wurden keine gültigen Rohstoff-Setups gefunden.")
+
+    st.markdown('<div class="section-gap-large"></div>', unsafe_allow_html=True)
+
+    with st.expander("Sektor Ranking anzeigen"):
+        if sector_df.empty:
+            st.info("Keine gültigen Sektordaten verfügbar.")
+        else:
+            st.dataframe(sector_df, use_container_width=True, hide_index=True)
+
+    with st.expander("Marktcharts anzeigen"):
+        marketchart_df = get_marketchart_view(scan_df, add_live_prices_to_markettable)
+
+        if marketchart_df.empty:
+            st.info("Keine Marktdaten verfügbar.")
+        else:
+            if add_live_prices_to_markettable:
+                st.caption("Live-Kurse werden aus Performance-Gründen nur für die ersten 40 Zeilen nachgeladen.")
+            else:
+                st.caption("Marktcharts zeigen standardmäßig nur Analysepreise. Live-Kurse kannst du links optional zuschalten.")
+            st.dataframe(marketchart_df, use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="section-gap-small"></div>', unsafe_allow_html=True)
+
+    st.header("Portfolio Monitor")
+
+    if not load_portfolio_monitor:
+        st.info("Portfolio Monitor ist deaktiviert. Aktiviere ihn links in der Sidebar, wenn du ihn laden möchtest.")
+    elif portfolio_df.empty:
+        st.info("Kein Portfolio gefunden. Lege optional eine Datei unter data/portfolio.csv an.")
     else:
-        spalten = st.columns(3)
+        st.dataframe(portfolio_df, use_container_width=True, hide_index=True)
 
-    for i, aktie in enumerate(top_aktien):
-        with spalten[i % len(spalten)]:
-            rendere_setup_karte(aktie)
-else:
-    st.write("Keine Aktienergebnisse verfügbar.")
-
-# --------------------------------------------------
-# Top Rohstoff Setups
-# --------------------------------------------------
-
-st.header("Top 3 Rohstoff Setups")
-
-top_rohstoffe = rohstoff_ranking[:3]
-
-if top_rohstoffe:
-    rohstoff_spalten = st.columns(3)
-
-    for i, rohstoff in enumerate(top_rohstoffe):
-        with rohstoff_spalten[i]:
-            rendere_setup_karte(rohstoff)
-else:
-    st.write("Keine Rohstoffergebnisse verfügbar.")
-
-# --------------------------------------------------
-# Sektor Ranking
-# --------------------------------------------------
-
-with st.expander("Sektor Ranking anzeigen"):
-    if sektor_analyse.get("ranking"):
-        for eintrag in sektor_analyse["ranking"]:
-            sektor = eintrag["sektor"]
-            score = eintrag["score"]
-            st.write(f"{sektor}: {score} / 4")
-    else:
-        st.write("Keine Sektordaten verfügbar.")
-
-# --------------------------------------------------
-# Marktcharts
-# --------------------------------------------------
-
-with st.expander("Marktcharts anzeigen"):
-    for key, info in MARKT_INDIZES.items():
-        name = info["name"]
-        region = info["region"]
-
-        st.subheader(f"{name} ({region})")
-
-        if key not in markt_daten:
-            st.write("❌ Keine Daten geladen")
-            continue
-
-        daten = markt_daten[key]
-
-        try:
-            letzter_kurs = float(daten["Close"].iloc[-1])
-            st.write(f"Aktueller Kurs: {letzter_kurs:.2f}")
-        except Exception:
-            st.write("Aktueller Kurs: -")
-
-        if key in analyse.get("details", {}):
-            detail = analyse["details"][key]
-
-            st.write(f"Score: {detail['score']} / 3")
-            st.write(f"Kurs über SMA50: {'Ja' if detail['kurs_ueber_sma50'] else 'Nein'}")
-            st.write(f"Kurs über SMA200: {'Ja' if detail['kurs_ueber_sma200'] else 'Nein'}")
-            st.write(f"SMA50 über SMA200: {'Ja' if detail['sma50_ueber_sma200'] else 'Nein'}")
-
-        st.line_chart(daten["Close"])
+except Exception as e:
+    st.error(f"Fehler beim Laden der App: {e}")
+    st.exception(e)

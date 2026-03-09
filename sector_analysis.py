@@ -1,72 +1,99 @@
-from indicators import berechne_sma
-from config import SEKTOREN, PERFORMANCE_1M, PERFORMANCE_3M
+from __future__ import annotations
+
+import pandas as pd
 
 
-def berechne_performance(daten, tage):
-    if len(daten) < tage:
-        return 0
+def rank_sectors(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Berechnet ein Sektor-Ranking auf Basis von:
+    - durchschnittlichem Trade Score
+    - durchschnittlichem Momentum
+    - durchschnittlicher Relative Strength
+    - Anteil Golden Cross in %
+    """
 
-    start = float(daten["Close"].iloc[-tage])
-    ende = float(daten["Close"].iloc[-1])
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-    return (ende - start) / start
+    df = df.copy()
 
+    if "sector" not in df.columns:
+        return pd.DataFrame()
 
-def analysiere_sektor(daten):
-
-    daten = berechne_sma(daten, 50)
-    daten = berechne_sma(daten, 200)
-
-    daten = daten.dropna()
-
-    if daten.empty:
-        return 0
-
-    letzter_kurs = float(daten["Close"].iloc[-1])
-    sma50 = float(daten["SMA_50"].iloc[-1])
-    sma200 = float(daten["SMA_200"].iloc[-1])
-
-    perf1m = berechne_performance(daten, PERFORMANCE_1M)
-    perf3m = berechne_performance(daten, PERFORMANCE_3M)
-
-    score = 0
-
-    if letzter_kurs > sma50:
-        score += 1
-
-    if letzter_kurs > sma200:
-        score += 1
-
-    if perf1m > 0:
-        score += 1
-
-    if perf3m > 0:
-        score += 1
-
-    return score
-
-
-def analysiere_sektoren(sektor_daten):
-
-    ergebnisse = []
-
-    for sektor_name, daten in sektor_daten.items():
-
-        score = analysiere_sektor(daten)
-
-        ergebnisse.append({
-            "sektor": sektor_name,
-            "score": score
-        })
-
-    ergebnisse = sorted(ergebnisse, key=lambda x: x["score"], reverse=True)
-
-    if len(ergebnisse) > 0:
-        top_sektor = ergebnisse[0]
+    # Spalten robust absichern
+    if "golden_cross" not in df.columns:
+        df["golden_cross"] = False
     else:
-        top_sektor = None
+        df["golden_cross"] = df["golden_cross"].fillna(False).astype(bool)
 
-    return {
-        "ranking": ergebnisse,
-        "top_sektor": top_sektor
-    }
+    if "momentum" not in df.columns:
+        df["momentum"] = 0.0
+    else:
+        df["momentum"] = pd.to_numeric(df["momentum"], errors="coerce").fillna(0.0)
+
+    if "relative_strength" not in df.columns:
+        df["relative_strength"] = 0.0
+    else:
+        df["relative_strength"] = pd.to_numeric(df["relative_strength"], errors="coerce").fillna(0.0)
+
+    if "trade_score" not in df.columns:
+        df["trade_score"] = 0.0
+    else:
+        df["trade_score"] = pd.to_numeric(df["trade_score"], errors="coerce").fillna(0.0)
+
+    if "symbol" not in df.columns:
+        df["symbol"] = ""
+
+    grouped = (
+        df.groupby("sector", dropna=False)
+        .agg(
+            count=("symbol", "count"),
+            avg_trade_score=("trade_score", "mean"),
+            avg_momentum=("momentum", "mean"),
+            avg_relative_strength=("relative_strength", "mean"),
+            pct_golden_cross=("golden_cross", "mean"),
+        )
+        .reset_index()
+    )
+
+    # mean(bool) ergibt 0..1 -> in Prozent umrechnen
+    grouped["pct_golden_cross"] = grouped["pct_golden_cross"] * 100.0
+
+    grouped["avg_trade_score"] = grouped["avg_trade_score"].round(2)
+    grouped["avg_momentum"] = grouped["avg_momentum"].round(2)
+    grouped["avg_relative_strength"] = grouped["avg_relative_strength"].round(2)
+    grouped["pct_golden_cross"] = grouped["pct_golden_cross"].round(2)
+
+    grouped = grouped.sort_values(
+        "avg_trade_score",
+        ascending=False,
+        na_position="last",
+    ).reset_index(drop=True)
+
+    return grouped
+
+
+def get_top_sector_label(df: pd.DataFrame) -> str:
+    """
+    Gibt das Label für den Top-Sektor zurück, z.B.:
+    'Industrie (4/4)'
+    """
+
+    sectors_df = rank_sectors(df)
+
+    if sectors_df.empty:
+        return "Keine Daten"
+
+    top = sectors_df.iloc[0]
+
+    pct_gc = top.get("pct_golden_cross", 0)
+    try:
+        pct_gc = float(pct_gc)
+    except Exception:
+        pct_gc = 0.0
+
+    strength = int(round((pct_gc / 100.0) * 4))
+    strength = max(0, min(4, strength))
+
+    sector_name = top.get("sector", "Unbekannt")
+    return f"{sector_name} ({strength}/4)"

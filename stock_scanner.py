@@ -1,146 +1,328 @@
-from indicators import berechne_sma, berechne_performance, golden_cross
-from config import MOMENTUM_TAGE
+from __future__ import annotations
+
+from typing import List, Dict, Optional
+from concurrent.futures import ThreadPoolExecutor
+import math
+
+import pandas as pd
+import yfinance as yf
+
+from config import MIN_HISTORY_ROWS, SYMBOL_META
+from indicators import calculate_indicators
+from ranking import add_trade_score
+from data_fetcher import get_price_snapshot
 
 
-def berechne_momentum(daten):
-    if len(daten) < MOMENTUM_TAGE:
-        return 0
-
-    start = float(daten["Close"].iloc[-MOMENTUM_TAGE])
-    ende = float(daten["Close"].iloc[-1])
-
-    return (ende - start) / start
+BATCH_SIZE = 80
 
 
-def bewerte_momentum_text(momentum):
-    if momentum > 0.08:
-        return "Stark"
-    elif momentum > 0.02:
-        return "Positiv"
-    elif momentum >= -0.02:
-        return "Neutral"
-    else:
-        return "Schwach"
-
-
-def berechne_signal(score_100):
-    if score_100 >= 75:
-        return "Kaufen"
-    elif score_100 >= 55:
-        return "Beobachten"
-    else:
-        return "Kein Einstieg"
-
-
-def analysiere_aktie(daten, sektor_score, markt_daten):
-    daten = berechne_sma(daten, 50)
-    daten = berechne_sma(daten, 200)
-
-    daten = daten.dropna()
-
-    if daten.empty:
-        return None
-
-    close = float(daten["Close"].iloc[-1])
-    sma50 = float(daten["SMA_50"].iloc[-1])
-    sma200 = float(daten["SMA_200"].iloc[-1])
-    volumen = float(daten["Volume"].iloc[-1])
-
-    momentum = berechne_momentum(daten)
-
-    aktien_perf = berechne_performance(daten, 20)
-    markt_perf = berechne_performance(markt_daten, 20)
-    relative_staerke = aktien_perf - markt_perf
-
-    hat_golden_cross = golden_cross(daten)
-
-    score = 0
-    max_score = 7
-
-    if close > sma50:
-        score += 1
-
-    if close > sma200:
-        score += 1
-
-    if momentum > 0:
-        score += 1
-
-    if sektor_score >= 3:
-        score += 1
-
-    if volumen > 500000:
-        score += 1
-
-    if relative_staerke > 0:
-        score += 1
-
-    if hat_golden_cross:
-        score += 1
-
-    score_100 = int((score / max_score) * 100)
-
-    momentum_text = bewerte_momentum_text(momentum)
-
-    kursziel = round(close * 1.10, 2)
-    stop_loss = round(close * 0.94, 2)
-
-    signal = berechne_signal(score_100)
-
+def _get_meta(symbol: str) -> Dict:
+    meta = SYMBOL_META.get(symbol, {})
     return {
-        "score_roh": score,
-        "trade_score": score_100,
-        "aktueller_kurs": round(close, 2),
-        "kursziel": kursziel,
-        "stop_loss": stop_loss,
-        "momentum_wert": round(momentum * 100, 2),
-        "momentum_text": momentum_text,
-        "relative_staerke": round(relative_staerke * 100, 2),
-        "golden_cross": hat_golden_cross,
-        "signal": signal
+        "name": meta.get("name", symbol),
+        "wkn": meta.get("wkn", "-"),
+        "sector": meta.get("sector", "Sonstige"),
     }
 
 
-def scanne_aktien(aktien_daten, sektor_analyse, markt_daten, aktien_liste):
-    ergebnisse = []
+def _chunk_list(items: List[str], chunk_size: int) -> List[List[str]]:
+    if not items:
+        return []
+    return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
 
-    if "USA_SP500" not in markt_daten:
-        return ergebnisse
 
-    markt_index = markt_daten["USA_SP500"]
+def _normalize_single_hist(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
 
-    for aktie in aktien_liste:
-        ticker = aktie["ticker"]
+    result = df.copy()
 
-        if ticker not in aktien_daten:
-            continue
+    if isinstance(result.columns, pd.MultiIndex):
+        result.columns = [col[0] if isinstance(col, tuple) else col for col in result.columns]
 
-        daten = aktien_daten[ticker]
+    rename_map = {}
+    for col in result.columns:
+        lc = str(col).lower()
+        if lc == "adj close":
+            rename_map[col] = "Adj Close"
+        elif lc == "open":
+            rename_map[col] = "Open"
+        elif lc == "high":
+            rename_map[col] = "High"
+        elif lc == "low":
+            rename_map[col] = "Low"
+        elif lc == "close":
+            rename_map[col] = "Close"
+        elif lc == "volume":
+            rename_map[col] = "Volume"
 
-        sektor_score = 0
-        if sektor_analyse["top_sektor"]:
-            sektor_score = sektor_analyse["top_sektor"]["score"]
+    result = result.rename(columns=rename_map)
+    result = result.sort_index()
 
-        analyse = analysiere_aktie(daten, sektor_score, markt_index)
+    required = {"Open", "High", "Low", "Close", "Volume"}
+    if not required.issubset(set(result.columns)):
+        return pd.DataFrame()
 
-        if analyse is None:
-            continue
+    result = result.dropna(subset=["Close"]).copy()
+    return result
 
-        ergebnisse.append({
-            "name": aktie["name"],
-            "ticker": ticker,
-            "wkn": aktie["wkn"],
-            "trade_score": analyse["trade_score"],
-            "aktueller_kurs": analyse["aktueller_kurs"],
-            "kursziel": analyse["kursziel"],
-            "stop_loss": analyse["stop_loss"],
-            "momentum_wert": analyse["momentum_wert"],
-            "momentum_text": analyse["momentum_text"],
-            "relative_staerke": analyse["relative_staerke"],
-            "golden_cross": analyse["golden_cross"],
-            "signal": analyse["signal"]
-        })
 
-    ergebnisse = sorted(ergebnisse, key=lambda x: x["trade_score"], reverse=True)
+def _download_batch_history(
+    symbols: List[str],
+    period: str = "1y",
+    interval: str = "1d",
+) -> Dict[str, pd.DataFrame]:
+    """
+    Lädt historische Daten blockweise für viele Ticker gleichzeitig.
+    """
+    if not symbols:
+        return {}
 
-    return ergebnisse
+    history_map: Dict[str, pd.DataFrame] = {symbol: pd.DataFrame() for symbol in symbols}
+
+    for batch in _chunk_list(symbols, BATCH_SIZE):
+        try:
+            raw = yf.download(
+                tickers=batch,
+                period=period,
+                interval=interval,
+                auto_adjust=False,
+                progress=False,
+                threads=True,
+                group_by="ticker",
+            )
+
+            if raw is None or raw.empty:
+                continue
+
+            # Einzelticker-Fall
+            if not isinstance(raw.columns, pd.MultiIndex):
+                symbol = batch[0]
+                history_map[symbol] = _normalize_single_hist(raw)
+                continue
+
+            # Multi-Ticker-Fall
+            available_symbols = list(raw.columns.get_level_values(0).unique())
+
+            for symbol in batch:
+                if symbol not in available_symbols:
+                    history_map[symbol] = pd.DataFrame()
+                    continue
+
+                try:
+                    sub = raw[symbol].copy()
+                    history_map[symbol] = _normalize_single_hist(sub)
+                except Exception:
+                    history_map[symbol] = pd.DataFrame()
+
+        except Exception:
+            for symbol in batch:
+                if symbol not in history_map:
+                    history_map[symbol] = pd.DataFrame()
+
+    return history_map
+
+
+def _extract_benchmark_close(
+    benchmark_symbol: str = "^GSPC",
+    period: str = "1y",
+    interval: str = "1d",
+) -> Optional[pd.Series]:
+    try:
+        benchmark_df = yf.download(
+            tickers=benchmark_symbol,
+            period=period,
+            interval=interval,
+            auto_adjust=False,
+            progress=False,
+            threads=False,
+        )
+
+        benchmark_df = _normalize_single_hist(benchmark_df)
+        if benchmark_df.empty or "Close" not in benchmark_df.columns:
+            return None
+
+        close = benchmark_df["Close"]
+        if isinstance(close, pd.DataFrame):
+            if close.empty:
+                return None
+            close = close.iloc[:, 0]
+
+        close = pd.to_numeric(close, errors="coerce").dropna()
+        if close.empty:
+            return None
+
+        return close
+
+    except Exception:
+        return None
+
+
+def _is_valid_indicator_payload(indicator_data: Dict) -> bool:
+    if not indicator_data:
+        return False
+
+    keys = [
+        "analysis_price",
+        "momentum",
+        "relative_strength",
+        "target_price",
+        "stop_loss",
+    ]
+
+    for key in keys:
+        value = indicator_data.get(key)
+        if value is not None and not pd.isna(value):
+            return True
+
+    return False
+
+
+def scan_single_symbol(
+    symbol: str,
+    hist: pd.DataFrame,
+    benchmark_close: Optional[pd.Series] = None,
+    fetch_live_price: bool = False,
+) -> Dict:
+    meta = _get_meta(symbol)
+
+    if hist is None or hist.empty or "Close" not in hist.columns or len(hist) < MIN_HISTORY_ROWS:
+        return {
+            "symbol": symbol,
+            "name": meta["name"],
+            "wkn": meta["wkn"],
+            "sector": meta["sector"],
+            "status": "insufficient_data",
+        }
+
+    indicator_data = calculate_indicators(hist, benchmark_close=benchmark_close)
+
+    if not _is_valid_indicator_payload(indicator_data):
+        return {
+            "symbol": symbol,
+            "name": meta["name"],
+            "wkn": meta["wkn"],
+            "sector": meta["sector"],
+            "status": "invalid_indicator_data",
+        }
+
+    price_data = get_price_snapshot(
+        symbol,
+        hist,
+        fetch_live_price=fetch_live_price,
+    )
+
+    row = {
+        "symbol": symbol,
+        "name": meta["name"],
+        "wkn": meta["wkn"],
+        "sector": meta["sector"],
+        **indicator_data,
+        **price_data,
+        "status": "ok",
+    }
+
+    row = add_trade_score(row)
+    return row
+
+
+def scan_symbols(
+    symbols: List[str],
+    benchmark_symbol: str = "^GSPC",
+    period: str = "1y",
+    interval: str = "1d",
+    max_workers: int = 8,
+    fetch_live_prices: bool = False,
+) -> pd.DataFrame:
+    if not symbols:
+        return pd.DataFrame()
+
+    # Dedupe, Reihenfolge behalten
+    seen = set()
+    clean_symbols: List[str] = []
+    for symbol in symbols:
+        if symbol not in seen:
+            seen.add(symbol)
+            clean_symbols.append(symbol)
+
+    benchmark_close = _extract_benchmark_close(
+        benchmark_symbol=benchmark_symbol,
+        period=period,
+        interval=interval,
+    )
+
+    history_map = _download_batch_history(
+        clean_symbols,
+        period=period,
+        interval=interval,
+    )
+
+    def worker(symbol: str) -> Dict:
+        hist = history_map.get(symbol, pd.DataFrame())
+        try:
+            return scan_single_symbol(
+                symbol=symbol,
+                hist=hist,
+                benchmark_close=benchmark_close,
+                fetch_live_price=fetch_live_prices,
+            )
+        except Exception as e:
+            meta = _get_meta(symbol)
+            return {
+                "symbol": symbol,
+                "name": meta["name"],
+                "wkn": meta["wkn"],
+                "sector": meta["sector"],
+                "status": "error",
+                "error": str(e),
+            }
+
+    worker_count = max(1, min(max_workers, len(clean_symbols)))
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        rows = list(executor.map(worker, clean_symbols))
+
+    df = pd.DataFrame(rows)
+
+    if df.empty:
+        return df
+
+    if "trade_score" in df.columns:
+        df["trade_score"] = pd.to_numeric(df["trade_score"], errors="coerce")
+
+    df = df.sort_values(
+        by="trade_score",
+        ascending=False,
+        na_position="last",
+    ).reset_index(drop=True)
+
+    return df
+
+
+def filter_top_candidates(
+    df: pd.DataFrame,
+    min_trade_score: float = 60.0,
+    require_golden_cross: bool = False,
+    min_rs: Optional[float] = None,
+) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    result = df.copy()
+
+    if "status" in result.columns:
+        result = result[result["status"] == "ok"]
+
+    if "trade_score" in result.columns:
+        result["trade_score"] = pd.to_numeric(result["trade_score"], errors="coerce")
+        result = result[result["trade_score"] >= min_trade_score]
+
+    if require_golden_cross and "golden_cross" in result.columns:
+        result["golden_cross"] = result["golden_cross"].fillna(False).astype(bool)
+        result = result[result["golden_cross"]]
+
+    if min_rs is not None and "relative_strength" in result.columns:
+        result["relative_strength"] = pd.to_numeric(result["relative_strength"], errors="coerce")
+        result = result[result["relative_strength"] >= min_rs]
+
+    return result.reset_index(drop=True)
