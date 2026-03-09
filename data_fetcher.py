@@ -9,7 +9,7 @@ from config import ZEITRAUM_STANDARD, INTERVALL_STANDARD
 # Einzelne Aktie laden
 # --------------------------------------------------
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=60)
 def lade_einzeldaten(
     ticker,
     zeitraum=ZEITRAUM_STANDARD,
