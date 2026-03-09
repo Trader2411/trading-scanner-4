@@ -1,99 +1,187 @@
 from __future__ import annotations
 
+from typing import Dict, Optional
+
 import pandas as pd
 
+try:
+    from config import MIN_STOCKS_PER_SECTOR
+except Exception:
+    MIN_STOCKS_PER_SECTOR = 5
 
-def rank_sectors(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Berechnet ein Sektor-Ranking auf Basis von:
-    - durchschnittlichem Trade Score
-    - durchschnittlichem Momentum
-    - durchschnittlicher Relative Strength
-    - Anteil Golden Cross in %
-    """
 
-    if df is None or df.empty:
+# ============================================================
+# Interne Hilfsfunktionen
+# ============================================================
+
+def _safe_numeric(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series, errors="coerce")
+
+
+def _round_or_none(value, digits: int = 2):
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return round(float(value), digits)
+    except Exception:
+        return None
+
+
+# ============================================================
+# Sektor-Ranking
+# ============================================================
+
+def rank_sectors(
+    scan_df: pd.DataFrame,
+    min_stocks_per_sector: int = MIN_STOCKS_PER_SECTOR,
+) -> pd.DataFrame:
+    """
+    Aggregiert Scanner-Daten auf Sektorebene.
+
+    Erwartete Eingabespalten möglichst:
+    - sector
+    - trade_score
+    - momentum
+    - relative_strength
+    - golden_cross
+    - analysis_price
+    - sma50
+    """
+    if scan_df is None or scan_df.empty:
         return pd.DataFrame()
 
-    df = df.copy()
+    df = scan_df.copy()
 
-    if "sector" not in df.columns:
+    if "status" in df.columns:
+        df = df[df["status"] == "ok"]
+
+    if df.empty or "sector" not in df.columns:
         return pd.DataFrame()
 
-    # Spalten robust absichern
-    if "golden_cross" not in df.columns:
-        df["golden_cross"] = False
-    else:
+    df["sector"] = df["sector"].fillna("Sonstige").astype(str)
+
+    numeric_cols = [
+        "trade_score",
+        "momentum",
+        "relative_strength",
+        "analysis_price",
+        "sma50",
+    ]
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = _safe_numeric(df[col])
+
+    if "golden_cross" in df.columns:
         df["golden_cross"] = df["golden_cross"].fillna(False).astype(bool)
-
-    if "momentum" not in df.columns:
-        df["momentum"] = 0.0
     else:
-        df["momentum"] = pd.to_numeric(df["momentum"], errors="coerce").fillna(0.0)
+        df["golden_cross"] = False
 
-    if "relative_strength" not in df.columns:
-        df["relative_strength"] = 0.0
-    else:
-        df["relative_strength"] = pd.to_numeric(df["relative_strength"], errors="coerce").fillna(0.0)
-
-    if "trade_score" not in df.columns:
-        df["trade_score"] = 0.0
-    else:
-        df["trade_score"] = pd.to_numeric(df["trade_score"], errors="coerce").fillna(0.0)
-
-    if "symbol" not in df.columns:
-        df["symbol"] = ""
-
-    grouped = (
-        df.groupby("sector", dropna=False)
-        .agg(
-            count=("symbol", "count"),
-            avg_trade_score=("trade_score", "mean"),
-            avg_momentum=("momentum", "mean"),
-            avg_relative_strength=("relative_strength", "mean"),
-            pct_golden_cross=("golden_cross", "mean"),
+    if "analysis_price" in df.columns and "sma50" in df.columns:
+        df["above_sma50"] = (
+            df["analysis_price"].notna()
+            & df["sma50"].notna()
+            & (df["analysis_price"] > df["sma50"])
         )
-        .reset_index()
+    else:
+        df["above_sma50"] = False
+
+    grouped = df.groupby("sector", dropna=False)
+
+    summary = grouped.agg(
+        anzahl_aktien=("sector", "size"),
+        durchschnitt_trade_score=("trade_score", "mean"),
+        durchschnitt_momentum=("momentum", "mean"),
+        durchschnitt_relative_strength=("relative_strength", "mean"),
+        anteil_golden_cross=("golden_cross", "mean"),
+        anteil_ueber_sma50=("above_sma50", "mean"),
+    ).reset_index()
+
+    summary = summary[summary["anzahl_aktien"] >= int(min_stocks_per_sector)].copy()
+
+    if summary.empty:
+        return pd.DataFrame()
+
+    summary["anteil_golden_cross"] = summary["anteil_golden_cross"] * 100.0
+    summary["anteil_ueber_sma50"] = summary["anteil_ueber_sma50"] * 100.0
+
+    # Gesamtsektorwertung
+    summary["sektor_score"] = (
+        summary["durchschnitt_trade_score"].fillna(0) * 0.40
+        + summary["durchschnitt_momentum"].fillna(0).clip(lower=-10, upper=25).add(10).div(35).mul(100) * 0.20
+        + summary["durchschnitt_relative_strength"].fillna(0) * 0.20
+        + summary["anteil_golden_cross"].fillna(0) * 0.10
+        + summary["anteil_ueber_sma50"].fillna(0) * 0.10
     )
 
-    # mean(bool) ergibt 0..1 -> in Prozent umrechnen
-    grouped["pct_golden_cross"] = grouped["pct_golden_cross"] * 100.0
+    summary["sektor_score"] = summary["sektor_score"].clip(lower=0, upper=100)
 
-    grouped["avg_trade_score"] = grouped["avg_trade_score"].round(2)
-    grouped["avg_momentum"] = grouped["avg_momentum"].round(2)
-    grouped["avg_relative_strength"] = grouped["avg_relative_strength"].round(2)
-    grouped["pct_golden_cross"] = grouped["pct_golden_cross"].round(2)
+    summary = summary.rename(
+        columns={
+            "sector": "Sektor",
+            "anzahl_aktien": "Anzahl Aktien",
+            "durchschnitt_trade_score": "Ø Trade Score",
+            "durchschnitt_momentum": "Ø Momentum",
+            "durchschnitt_relative_strength": "Ø Relative Stärke",
+            "anteil_golden_cross": "Golden Cross %",
+            "anteil_ueber_sma50": "Über SMA50 %",
+            "sektor_score": "Sektor Score",
+        }
+    )
 
-    grouped = grouped.sort_values(
-        "avg_trade_score",
-        ascending=False,
+    for col in [
+        "Ø Trade Score",
+        "Ø Momentum",
+        "Ø Relative Stärke",
+        "Golden Cross %",
+        "Über SMA50 %",
+        "Sektor Score",
+    ]:
+        summary[col] = summary[col].apply(_round_or_none)
+
+    summary = summary.sort_values(
+        by=["Sektor Score", "Ø Trade Score", "Sektor"],
+        ascending=[False, False, True],
         na_position="last",
     ).reset_index(drop=True)
 
-    return grouped
+    return summary
 
 
-def get_top_sector_label(df: pd.DataFrame) -> str:
+# ============================================================
+# Top-Sektor
+# ============================================================
+
+def get_top_sector_label(scan_df: pd.DataFrame) -> str:
     """
-    Gibt das Label für den Top-Sektor zurück, z.B.:
-    'Industrie (4/4)'
+    Gibt den Namen des aktuell stärksten Sektors zurück.
     """
+    ranked = rank_sectors(scan_df)
 
-    sectors_df = rank_sectors(df)
+    if ranked is None or ranked.empty:
+        return "Kein klarer Leader"
 
-    if sectors_df.empty:
-        return "Keine Daten"
-
-    top = sectors_df.iloc[0]
-
-    pct_gc = top.get("pct_golden_cross", 0)
     try:
-        pct_gc = float(pct_gc)
+        return str(ranked.iloc[0]["Sektor"])
     except Exception:
-        pct_gc = 0.0
+        return "Kein klarer Leader"
 
-    strength = int(round((pct_gc / 100.0) * 4))
-    strength = max(0, min(4, strength))
 
-    sector_name = top.get("sector", "Unbekannt")
-    return f"{sector_name} ({strength}/4)"
+# ============================================================
+# Zusatzfunktion für spätere UI-Erweiterungen
+# ============================================================
+
+def summarize_sector_strength(scan_df: pd.DataFrame) -> Dict:
+    ranked = rank_sectors(scan_df)
+
+    if ranked is None or ranked.empty:
+        return {
+            "top_sector": "Kein klarer Leader",
+            "sector_count": 0,
+            "top_score": None,
+        }
+
+    return {
+        "top_sector": str(ranked.iloc[0]["Sektor"]),
+        "sector_count": int(len(ranked)),
+        "top_score": _round_or_none(ranked.iloc[0]["Sektor Score"]),
+    }

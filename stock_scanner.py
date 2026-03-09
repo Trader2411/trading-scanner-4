@@ -1,20 +1,34 @@
 from __future__ import annotations
 
-from typing import List, Dict, Optional
 from concurrent.futures import ThreadPoolExecutor
-import math
+from typing import Dict, List, Optional
 
 import pandas as pd
 import yfinance as yf
 
-from config import MIN_HISTORY_ROWS, SYMBOL_META
+from config import (
+    DEFAULT_HISTORY_INTERVAL,
+    DEFAULT_HISTORY_PERIOD,
+    SCANNER_MAX_WORKERS,
+    MIN_HISTORY_LENGTH,
+    MARKET_INDEX,
+    SYMBOL_META,
+)
+from data_fetcher import get_price_snapshot
 from indicators import calculate_indicators
 from ranking import add_trade_score
-from data_fetcher import get_price_snapshot
 
+
+# ============================================================
+# Konfiguration
+# ============================================================
 
 BATCH_SIZE = 80
 
+
+# ============================================================
+# Interne Hilfsfunktionen
+# ============================================================
 
 def _get_meta(symbol: str) -> Dict:
     meta = SYMBOL_META.get(symbol, {})
@@ -29,6 +43,28 @@ def _chunk_list(items: List[str], chunk_size: int) -> List[List[str]]:
     if not items:
         return []
     return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
+def _normalize_symbol_list(symbols: List[str]) -> List[str]:
+    if not symbols:
+        return []
+
+    seen = set()
+    result: List[str] = []
+
+    for symbol in symbols:
+        if symbol is None:
+            continue
+
+        clean = str(symbol).strip().upper()
+        if not clean:
+            continue
+
+        if clean not in seen:
+            seen.add(clean)
+            result.append(clean)
+
+    return result
 
 
 def _normalize_single_hist(df: pd.DataFrame) -> pd.DataFrame:
@@ -67,10 +103,22 @@ def _normalize_single_hist(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def _safe_numeric_series(series) -> pd.Series:
+    if series is None:
+        return pd.Series(dtype=float)
+
+    if isinstance(series, pd.DataFrame):
+        if series.empty:
+            return pd.Series(dtype=float)
+        series = series.iloc[:, 0]
+
+    return pd.to_numeric(series, errors="coerce").dropna()
+
+
 def _download_batch_history(
     symbols: List[str],
-    period: str = "1y",
-    interval: str = "1d",
+    period: str = DEFAULT_HISTORY_PERIOD,
+    interval: str = DEFAULT_HISTORY_INTERVAL,
 ) -> Dict[str, pd.DataFrame]:
     """
     Lädt historische Daten blockweise für viele Ticker gleichzeitig.
@@ -124,9 +172,9 @@ def _download_batch_history(
 
 
 def _extract_benchmark_close(
-    benchmark_symbol: str = "^GSPC",
-    period: str = "1y",
-    interval: str = "1d",
+    benchmark_symbol: str = MARKET_INDEX,
+    period: str = DEFAULT_HISTORY_PERIOD,
+    interval: str = DEFAULT_HISTORY_INTERVAL,
 ) -> Optional[pd.Series]:
     try:
         benchmark_df = yf.download(
@@ -142,13 +190,7 @@ def _extract_benchmark_close(
         if benchmark_df.empty or "Close" not in benchmark_df.columns:
             return None
 
-        close = benchmark_df["Close"]
-        if isinstance(close, pd.DataFrame):
-            if close.empty:
-                return None
-            close = close.iloc[:, 0]
-
-        close = pd.to_numeric(close, errors="coerce").dropna()
+        close = _safe_numeric_series(benchmark_df["Close"])
         if close.empty:
             return None
 
@@ -178,6 +220,24 @@ def _is_valid_indicator_payload(indicator_data: Dict) -> bool:
     return False
 
 
+def _build_error_row(symbol: str, status: str, error: Optional[str] = None) -> Dict:
+    meta = _get_meta(symbol)
+    row = {
+        "symbol": symbol,
+        "name": meta["name"],
+        "wkn": meta["wkn"],
+        "sector": meta["sector"],
+        "status": status,
+    }
+    if error:
+        row["error"] = error
+    return row
+
+
+# ============================================================
+# Einzelanalyse
+# ============================================================
+
 def scan_single_symbol(
     symbol: str,
     hist: pd.DataFrame,
@@ -186,7 +246,7 @@ def scan_single_symbol(
 ) -> Dict:
     meta = _get_meta(symbol)
 
-    if hist is None or hist.empty or "Close" not in hist.columns or len(hist) < MIN_HISTORY_ROWS:
+    if hist is None or hist.empty or "Close" not in hist.columns or len(hist) < MIN_HISTORY_LENGTH:
         return {
             "symbol": symbol,
             "name": meta["name"],
@@ -207,8 +267,8 @@ def scan_single_symbol(
         }
 
     price_data = get_price_snapshot(
-        symbol,
-        hist,
+        symbol=symbol,
+        hist=hist,
         fetch_live_price=fetch_live_price,
     )
 
@@ -226,24 +286,24 @@ def scan_single_symbol(
     return row
 
 
+# ============================================================
+# Mehrfachscan
+# ============================================================
+
 def scan_symbols(
     symbols: List[str],
-    benchmark_symbol: str = "^GSPC",
-    period: str = "1y",
-    interval: str = "1d",
-    max_workers: int = 8,
+    benchmark_symbol: str = MARKET_INDEX,
+    period: str = DEFAULT_HISTORY_PERIOD,
+    interval: str = DEFAULT_HISTORY_INTERVAL,
+    max_workers: int = SCANNER_MAX_WORKERS,
     fetch_live_prices: bool = False,
 ) -> pd.DataFrame:
     if not symbols:
         return pd.DataFrame()
 
-    # Dedupe, Reihenfolge behalten
-    seen = set()
-    clean_symbols: List[str] = []
-    for symbol in symbols:
-        if symbol not in seen:
-            seen.add(symbol)
-            clean_symbols.append(symbol)
+    clean_symbols = _normalize_symbol_list(symbols)
+    if not clean_symbols:
+        return pd.DataFrame()
 
     benchmark_close = _extract_benchmark_close(
         benchmark_symbol=benchmark_symbol,
@@ -259,6 +319,7 @@ def scan_symbols(
 
     def worker(symbol: str) -> Dict:
         hist = history_map.get(symbol, pd.DataFrame())
+
         try:
             return scan_single_symbol(
                 symbol=symbol,
@@ -266,16 +327,8 @@ def scan_symbols(
                 benchmark_close=benchmark_close,
                 fetch_live_price=fetch_live_prices,
             )
-        except Exception as e:
-            meta = _get_meta(symbol)
-            return {
-                "symbol": symbol,
-                "name": meta["name"],
-                "wkn": meta["wkn"],
-                "sector": meta["sector"],
-                "status": "error",
-                "error": str(e),
-            }
+        except Exception as exc:
+            return _build_error_row(symbol, status="error", error=str(exc))
 
     worker_count = max(1, min(max_workers, len(clean_symbols)))
 
@@ -290,14 +343,42 @@ def scan_symbols(
     if "trade_score" in df.columns:
         df["trade_score"] = pd.to_numeric(df["trade_score"], errors="coerce")
 
-    df = df.sort_values(
-        by="trade_score",
-        ascending=False,
-        na_position="last",
-    ).reset_index(drop=True)
+    sort_cols = []
+    ascending = []
 
-    return df
+    if "status" in df.columns:
+        df["_status_rank"] = df["status"].map(
+            {
+                "ok": 0,
+                "invalid_indicator_data": 1,
+                "insufficient_data": 2,
+                "error": 3,
+            }
+        ).fillna(9)
+        sort_cols.append("_status_rank")
+        ascending.append(True)
 
+    if "trade_score" in df.columns:
+        sort_cols.append("trade_score")
+        ascending.append(False)
+
+    if "symbol" in df.columns:
+        sort_cols.append("symbol")
+        ascending.append(True)
+
+    if sort_cols:
+        df = df.sort_values(by=sort_cols, ascending=ascending, na_position="last")
+
+    drop_cols = [col for col in ["_status_rank"] if col in df.columns]
+    if drop_cols:
+        df = df.drop(columns=drop_cols)
+
+    return df.reset_index(drop=True)
+
+
+# ============================================================
+# Filterlogik
+# ============================================================
 
 def filter_top_candidates(
     df: pd.DataFrame,
@@ -313,9 +394,12 @@ def filter_top_candidates(
     if "status" in result.columns:
         result = result[result["status"] == "ok"]
 
+    if result.empty:
+        return pd.DataFrame()
+
     if "trade_score" in result.columns:
         result["trade_score"] = pd.to_numeric(result["trade_score"], errors="coerce")
-        result = result[result["trade_score"] >= min_trade_score]
+        result = result[result["trade_score"] >= float(min_trade_score)]
 
     if require_golden_cross and "golden_cross" in result.columns:
         result["golden_cross"] = result["golden_cross"].fillna(False).astype(bool)
@@ -323,6 +407,73 @@ def filter_top_candidates(
 
     if min_rs is not None and "relative_strength" in result.columns:
         result["relative_strength"] = pd.to_numeric(result["relative_strength"], errors="coerce")
-        result = result[result["relative_strength"] >= min_rs]
+        result = result[result["relative_strength"] >= float(min_rs)]
+
+    if result.empty:
+        return pd.DataFrame()
+
+    sort_cols = []
+    ascending = []
+
+    if "trade_score" in result.columns:
+        sort_cols.append("trade_score")
+        ascending.append(False)
+
+    if "momentum" in result.columns:
+        result["momentum"] = pd.to_numeric(result["momentum"], errors="coerce")
+        sort_cols.append("momentum")
+        ascending.append(False)
+
+    if "relative_strength" in result.columns:
+        result["relative_strength"] = pd.to_numeric(result["relative_strength"], errors="coerce")
+        sort_cols.append("relative_strength")
+        ascending.append(False)
+
+    if "symbol" in result.columns:
+        sort_cols.append("symbol")
+        ascending.append(True)
+
+    if sort_cols:
+        result = result.sort_values(by=sort_cols, ascending=ascending, na_position="last")
 
     return result.reset_index(drop=True)
+
+
+# ============================================================
+# Zusatzfunktionen
+# ============================================================
+
+def filter_watchlist_candidates(
+    df: pd.DataFrame,
+    min_trade_score: float = 50.0,
+) -> pd.DataFrame:
+    """
+    Etwas lockerer Filter für Beobachtungskandidaten.
+    """
+    return filter_top_candidates(
+        df=df,
+        min_trade_score=min_trade_score,
+        require_golden_cross=False,
+        min_rs=None,
+    )
+
+
+def summarize_scan_status(df: pd.DataFrame) -> Dict:
+    if df is None or df.empty or "status" not in df.columns:
+        return {
+            "total": 0,
+            "ok": 0,
+            "insufficient_data": 0,
+            "invalid_indicator_data": 0,
+            "error": 0,
+        }
+
+    status = df["status"].fillna("unknown").astype(str)
+
+    return {
+        "total": int(len(df)),
+        "ok": int((status == "ok").sum()),
+        "insufficient_data": int((status == "insufficient_data").sum()),
+        "invalid_indicator_data": int((status == "invalid_indicator_data").sum()),
+        "error": int((status == "error").sum()),
+    }

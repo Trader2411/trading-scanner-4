@@ -1,174 +1,471 @@
-# indicators.py
-
 from __future__ import annotations
 
 from typing import Dict, Optional
-import numpy as np
+
 import pandas as pd
 
-from config import DEFAULT_STOP_LOSS_PCT, DEFAULT_TARGET_PCT, ATR_STOP_MULTIPLIER
+try:
+    from config import (
+        DEFAULT_STOP_LOSS_PCT,
+        MOMENTUM_LOOKBACK,
+        RECENT_LOW_LOOKBACK,
+        RELATIVE_STRENGTH_LOOKBACK,
+        SMA_FAST,
+        SMA_SLOW,
+        SWING_LOW_LOOKBACK,
+    )
+except Exception:
+    DEFAULT_STOP_LOSS_PCT = 0.08
+    MOMENTUM_LOOKBACK = 21
+    RECENT_LOW_LOOKBACK = 20
+    RELATIVE_STRENGTH_LOOKBACK = 90
+    SMA_FAST = 50
+    SMA_SLOW = 200
+    SWING_LOW_LOOKBACK = 20
 
 
-def sma(series: pd.Series, window: int) -> pd.Series:
-    return series.rolling(window).mean()
+# ============================================================
+# Basis-Helfer
+# ============================================================
+
+def _safe_series(df: pd.DataFrame, column: str) -> pd.Series:
+    if df is None or df.empty or column not in df.columns:
+        return pd.Series(dtype=float)
+
+    series = df[column]
+
+    if isinstance(series, pd.DataFrame):
+        if series.empty:
+            return pd.Series(dtype=float)
+        series = series.iloc[:, 0]
+
+    return pd.to_numeric(series, errors="coerce").dropna()
 
 
-def atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
+def _safe_float(value) -> Optional[float]:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
 
-    prev_close = close.shift(1)
+
+def _round_or_none(value: Optional[float], digits: int = 2) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return round(float(value), digits)
+    except Exception:
+        return None
+
+
+def _last(series: pd.Series) -> Optional[float]:
+    if series is None or series.empty:
+        return None
+    try:
+        value = series.iloc[-1]
+        if pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _clamp(value: float, lower: float = 0.0, upper: float = 100.0) -> float:
+    return max(lower, min(upper, float(value)))
+
+
+# ============================================================
+# Gleitende Durchschnitte
+# ============================================================
+
+def calc_sma(close: pd.Series, window: int) -> Optional[float]:
+    if close is None or len(close) < window:
+        return None
+
+    value = close.rolling(window).mean().iloc[-1]
+    if pd.isna(value):
+        return None
+
+    return float(value)
+
+
+def calc_ema(close: pd.Series, window: int) -> Optional[float]:
+    if close is None or len(close) < window:
+        return None
+
+    value = close.ewm(span=window, adjust=False).mean().iloc[-1]
+    if pd.isna(value):
+        return None
+
+    return float(value)
+
+
+# ============================================================
+# Momentum / Relative Strength
+# ============================================================
+
+def calc_momentum_pct(close: pd.Series, lookback: int = MOMENTUM_LOOKBACK) -> Optional[float]:
+    """
+    Prozentuale Kursveränderung über den Lookback.
+    """
+    if close is None or len(close) <= lookback:
+        return None
+
+    start = close.iloc[-lookback - 1]
+    end = close.iloc[-1]
+
+    if pd.isna(start) or pd.isna(end) or start == 0:
+        return None
+
+    return float(((end / start) - 1.0) * 100.0)
+
+
+def calc_relative_strength(
+    close: pd.Series,
+    benchmark_close: Optional[pd.Series],
+    lookback: int = RELATIVE_STRENGTH_LOOKBACK,
+) -> Optional[float]:
+    """
+    Relative Strength gegen einen Benchmark.
+
+    Ausgabe als 0-100 Skala:
+    - 50 = neutral
+    - >50 = besser als Benchmark
+    - <50 = schlechter als Benchmark
+    """
+    if close is None or close.empty or benchmark_close is None or benchmark_close.empty:
+        return None
+
+    stock = pd.to_numeric(close, errors="coerce").dropna()
+    benchmark = pd.to_numeric(benchmark_close, errors="coerce").dropna()
+
+    combined = pd.concat(
+        [stock.rename("stock"), benchmark.rename("benchmark")],
+        axis=1,
+        join="inner",
+    ).dropna()
+
+    if len(combined) <= lookback:
+        return None
+
+    stock_start = combined["stock"].iloc[-lookback - 1]
+    stock_end = combined["stock"].iloc[-1]
+    bench_start = combined["benchmark"].iloc[-lookback - 1]
+    bench_end = combined["benchmark"].iloc[-1]
+
+    if min(stock_start, stock_end, bench_start, bench_end) <= 0:
+        return None
+
+    stock_return = (stock_end / stock_start) - 1.0
+    bench_return = (bench_end / bench_start) - 1.0
+    relative_diff = stock_return - bench_return
+
+    # Relative Differenz in eine intuitive 0-100 Skala transformieren
+    # -20 % Unterperformance -> ca. 0
+    # +20 % Outperformance   -> ca. 100
+    scaled = 50.0 + (relative_diff * 250.0)
+    return float(_clamp(scaled, 0.0, 100.0))
+
+
+# ============================================================
+# Trend / Marktstruktur
+# ============================================================
+
+def calc_golden_cross(sma_fast: Optional[float], sma_slow: Optional[float]) -> bool:
+    if sma_fast is None or sma_slow is None:
+        return False
+    return float(sma_fast) > float(sma_slow)
+
+
+def calc_distance_to_52w_high_pct(close: pd.Series, lookback: int = 252) -> Optional[float]:
+    if close is None or close.empty:
+        return None
+
+    tail = close.tail(lookback)
+    if tail.empty:
+        return None
+
+    high_52w = tail.max()
+    current = tail.iloc[-1]
+
+    if pd.isna(high_52w) or pd.isna(current) or high_52w == 0:
+        return None
+
+    return float(((current / high_52w) - 1.0) * 100.0)
+
+
+def calc_trend_strength(
+    current_price: Optional[float],
+    sma_fast: Optional[float],
+    sma_slow: Optional[float],
+    ema_fast: Optional[float] = None,
+) -> Optional[float]:
+    """
+    Trendstärke als 0-100 Wert.
+
+    Bewertet:
+    - Kurs über SMA50
+    - Kurs über SMA200
+    - SMA50 über SMA200
+    - optional EMA-Unterstützung
+    """
+    if current_price is None:
+        return None
+
+    score = 0.0
+    parts = 0
+
+    if sma_fast is not None:
+        parts += 1
+        if current_price > sma_fast:
+            score += 1.0
+
+    if sma_slow is not None:
+        parts += 1
+        if current_price > sma_slow:
+            score += 1.0
+
+    if sma_fast is not None and sma_slow is not None:
+        parts += 1
+        if sma_fast > sma_slow:
+            score += 1.0
+
+    if ema_fast is not None:
+        parts += 1
+        if current_price > ema_fast:
+            score += 1.0
+
+    if parts == 0:
+        return None
+
+    return float((score / parts) * 100.0)
+
+
+# ============================================================
+# Swing / Stops / Ziele
+# ============================================================
+
+def find_last_swing_low(low: pd.Series, lookback: int = SWING_LOW_LOOKBACK) -> Optional[float]:
+    if low is None or low.empty:
+        return None
+
+    tail = low.tail(lookback)
+    if tail.empty:
+        return None
+
+    value = tail.min()
+    if pd.isna(value):
+        return None
+
+    return float(value)
+
+
+def calc_recent_low(low: pd.Series, lookback: int = RECENT_LOW_LOOKBACK) -> Optional[float]:
+    if low is None or low.empty:
+        return None
+
+    tail = low.tail(lookback)
+    if tail.empty:
+        return None
+
+    value = tail.min()
+    if pd.isna(value):
+        return None
+
+    return float(value)
+
+
+def calc_stop_loss(
+    analysis_price: Optional[float],
+    sma_fast: Optional[float],
+    swing_low: Optional[float],
+    stop_loss_pct: float = DEFAULT_STOP_LOSS_PCT,
+) -> Optional[float]:
+    """
+    Scanner-Stop-Loss:
+    max(
+        8 % unter Analysepreis,
+        SMA50,
+        letztes Swing Low
+    )
+    """
+    candidates = []
+
+    if analysis_price is not None and analysis_price > 0:
+        candidates.append(analysis_price * (1.0 - float(stop_loss_pct)))
+
+    if sma_fast is not None and sma_fast > 0:
+        candidates.append(sma_fast)
+
+    if swing_low is not None and swing_low > 0:
+        candidates.append(swing_low)
+
+    if not candidates:
+        return None
+
+    return float(max(candidates))
+
+
+def calc_target_price(
+    analysis_price: Optional[float],
+    stop_loss: Optional[float],
+    reward_risk_ratio: float = 2.0,
+) -> Optional[float]:
+    """
+    Einfaches Kursziel auf Basis Chance/Risiko.
+    """
+    if analysis_price is None or stop_loss is None:
+        return None
+
+    risk = analysis_price - stop_loss
+    if risk <= 0:
+        return None
+
+    return float(analysis_price + (risk * reward_risk_ratio))
+
+
+# ============================================================
+# Zusatzkennzahlen
+# ============================================================
+
+def calc_atr(df: pd.DataFrame, window: int = 14) -> Optional[float]:
+    if df is None or df.empty:
+        return None
+
+    high = _safe_series(df, "High")
+    low = _safe_series(df, "Low")
+    close = _safe_series(df, "Close")
+
+    if high.empty or low.empty or close.empty:
+        return None
+
+    aligned = pd.concat(
+        [high.rename("High"), low.rename("Low"), close.rename("Close")],
+        axis=1,
+        join="inner",
+    ).dropna()
+
+    if len(aligned) < window + 1:
+        return None
+
+    prev_close = aligned["Close"].shift(1)
+
     tr = pd.concat(
         [
-            (high - low),
-            (high - prev_close).abs(),
-            (low - prev_close).abs(),
+            aligned["High"] - aligned["Low"],
+            (aligned["High"] - prev_close).abs(),
+            (aligned["Low"] - prev_close).abs(),
         ],
         axis=1,
     ).max(axis=1)
 
-    return tr.rolling(window).mean()
-
-
-def calc_momentum(close: pd.Series, lookback: int = 63) -> Optional[float]:
-    if len(close) <= lookback:
-        return None
-    start = close.iloc[-lookback - 1]
-    end = close.iloc[-1]
-    if start == 0 or pd.isna(start) or pd.isna(end):
-        return None
-    return float(((end / start) - 1.0) * 100.0)
-
-
-def calc_relative_strength(close: pd.Series, benchmark_close: Optional[pd.Series] = None) -> Optional[float]:
-    mom = calc_momentum(close, 63)
-    if mom is None:
+    atr = tr.rolling(window).mean().iloc[-1]
+    if pd.isna(atr):
         return None
 
-    if benchmark_close is not None and len(benchmark_close.dropna()) >= 64:
-        bench_mom = calc_momentum(benchmark_close.dropna(), 63)
-        if bench_mom is not None:
-            rs = 50 + (mom - bench_mom) * 2
-            return float(max(0, min(100, rs)))
-
-    rs = 50 + mom * 2
-    return float(max(0, min(100, rs)))
+    return float(atr)
 
 
-def calc_golden_cross(close: pd.Series) -> bool:
-    sma50 = close.rolling(50).mean()
-    sma200 = close.rolling(200).mean()
+# ============================================================
+# Hauptfunktion für Scanner
+# ============================================================
 
-    if len(close) < 200 or pd.isna(sma50.iloc[-1]) or pd.isna(sma200.iloc[-1]):
-        return False
+def calculate_indicators(
+    hist: pd.DataFrame,
+    benchmark_close: Optional[pd.Series] = None,
+) -> Dict:
+    """
+    Hauptfunktion für den Scanner.
 
-    return bool(sma50.iloc[-1] > sma200.iloc[-1])
-
-
-def calc_trend_strength(close: pd.Series) -> Optional[float]:
-    if len(close) < 200:
-        return None
-
-    sma20 = close.rolling(20).mean().iloc[-1]
-    sma50 = close.rolling(50).mean().iloc[-1]
-    sma200 = close.rolling(200).mean().iloc[-1]
-    price = close.iloc[-1]
-
-    if any(pd.isna(x) for x in [sma20, sma50, sma200]):
-        return None
-
-    score = 0.0
-    if price > sma20:
-        score += 33.3
-    if sma20 > sma50:
-        score += 33.3
-    if sma50 > sma200:
-        score += 33.4
-    return round(score, 2)
-
-
-def calc_distance_to_52w_high(close: pd.Series, window: int = 252) -> Optional[float]:
-    if len(close) < min(60, window):
-        return None
-    high_52 = close.tail(window).max()
-    current = close.iloc[-1]
-    if high_52 == 0 or pd.isna(high_52) or pd.isna(current):
-        return None
-    return float(((current / high_52) - 1.0) * 100.0)
-
-
-def calc_target_price(analysis_price: float, momentum: Optional[float], atr_value: Optional[float]) -> Optional[float]:
-    if analysis_price is None:
-        return None
-
-    if atr_value is not None and not pd.isna(atr_value):
-        return round(analysis_price + (atr_value * 3.0), 2)
-
-    if momentum is not None and momentum > 10:
-        return round(analysis_price * 1.18, 2)
-
-    return round(analysis_price * (1.0 + DEFAULT_TARGET_PCT), 2)
-
-
-def calc_stop_loss(analysis_price: float, atr_value: Optional[float], recent_low: Optional[float]) -> Optional[float]:
-    if analysis_price is None:
-        return None
-
-    candidates = [round(analysis_price * (1.0 - DEFAULT_STOP_LOSS_PCT), 2)]
-
-    if atr_value is not None and not pd.isna(atr_value):
-        candidates.append(round(analysis_price - (ATR_STOP_MULTIPLIER * atr_value), 2))
-
-    if recent_low is not None and not pd.isna(recent_low):
-        candidates.append(round(recent_low * 0.995, 2))
-
-    candidates = [c for c in candidates if c > 0]
-    if not candidates:
-        return None
-
-    return round(max(candidates), 2)
-
-
-def calculate_indicators(df: pd.DataFrame, benchmark_close: Optional[pd.Series] = None) -> Dict:
-    if df is None or df.empty:
+    Erwartete Rückgabe u.a.:
+    - analysis_price
+    - sma50
+    - sma200
+    - golden_cross
+    - momentum
+    - relative_strength
+    - trend_strength
+    - distance_to_52w_high_pct
+    - target_price
+    - stop_loss
+    """
+    if hist is None or hist.empty:
         return {}
 
-    close = df["Close"].dropna()
-    low = df["Low"].dropna()
+    close = _safe_series(hist, "Close")
+    low = _safe_series(hist, "Low")
+    volume = _safe_series(hist, "Volume")
 
     if close.empty:
         return {}
 
-    analysis_price = float(close.iloc[-1])
-    sma20_last = sma(close, 20).iloc[-1] if len(close) >= 20 else np.nan
-    sma50_last = sma(close, 50).iloc[-1] if len(close) >= 50 else np.nan
-    sma200_last = sma(close, 200).iloc[-1] if len(close) >= 200 else np.nan
+    analysis_price = _last(close)
+    sma50 = calc_sma(close, SMA_FAST)
+    sma200 = calc_sma(close, SMA_SLOW)
+    ema21 = calc_ema(close, 21)
 
-    atr_series = atr(df, 14)
-    atr_last = atr_series.iloc[-1] if len(atr_series.dropna()) > 0 else np.nan
+    golden_cross = calc_golden_cross(sma50, sma200)
+    momentum = calc_momentum_pct(close, MOMENTUM_LOOKBACK)
+    relative_strength = calc_relative_strength(
+        close=close,
+        benchmark_close=benchmark_close,
+        lookback=RELATIVE_STRENGTH_LOOKBACK,
+    )
+    distance_to_52w_high_pct = calc_distance_to_52w_high_pct(close, 252)
+    trend_strength = calc_trend_strength(
+        current_price=analysis_price,
+        sma_fast=sma50,
+        sma_slow=sma200,
+        ema_fast=ema21,
+    )
 
-    momentum = calc_momentum(close, 63)
-    rs = calc_relative_strength(close, benchmark_close)
-    golden_cross = calc_golden_cross(close)
-    trend_strength = calc_trend_strength(close)
-    distance_to_high = calc_distance_to_52w_high(close)
+    swing_low = find_last_swing_low(low, SWING_LOW_LOOKBACK)
+    recent_low = calc_recent_low(low, RECENT_LOW_LOOKBACK)
+    stop_loss = calc_stop_loss(
+        analysis_price=analysis_price,
+        sma_fast=sma50,
+        swing_low=swing_low,
+        stop_loss_pct=DEFAULT_STOP_LOSS_PCT,
+    )
+    target_price = calc_target_price(
+        analysis_price=analysis_price,
+        stop_loss=stop_loss,
+        reward_risk_ratio=2.0,
+    )
 
-    recent_low = low.tail(20).min() if len(low) >= 20 else low.min()
-    target_price = calc_target_price(analysis_price, momentum, atr_last)
-    stop_loss = calc_stop_loss(analysis_price, atr_last, recent_low)
+    atr14 = calc_atr(hist, 14)
 
-    return {
-        "analysis_price": round(analysis_price, 2),
-        "sma20": round(float(sma20_last), 2) if pd.notna(sma20_last) else None,
-        "sma50": round(float(sma50_last), 2) if pd.notna(sma50_last) else None,
-        "sma200": round(float(sma200_last), 2) if pd.notna(sma200_last) else None,
-        "atr14": round(float(atr_last), 2) if pd.notna(atr_last) else None,
-        "momentum": round(momentum, 2) if momentum is not None else None,
-        "relative_strength": round(rs, 2) if rs is not None else None,
-        "golden_cross": golden_cross,
-        "trend_strength": round(trend_strength, 2) if trend_strength is not None else None,
-        "distance_to_52w_high_pct": round(distance_to_high, 2) if distance_to_high is not None else None,
-        "target_price": target_price,
-        "stop_loss": stop_loss,
+    relative_volume = None
+    if not volume.empty and len(volume) >= 20:
+        avg_vol_20 = volume.tail(20).mean()
+        current_vol = volume.iloc[-1]
+        if pd.notna(avg_vol_20) and avg_vol_20 not in [0, None] and pd.notna(current_vol):
+            relative_volume = float(current_vol / avg_vol_20)
+
+    volume_score = None
+    if relative_volume is not None:
+        # 1.0 = neutral (~50), 2.0 = stark (~100)
+        volume_score = float(_clamp(relative_volume * 50.0, 0.0, 100.0))
+
+    result = {
+        "analysis_price": _round_or_none(analysis_price),
+        "sma50": _round_or_none(sma50),
+        "sma200": _round_or_none(sma200),
+        "ema21": _round_or_none(ema21),
+        "golden_cross": bool(golden_cross),
+        "momentum": _round_or_none(momentum),
+        "relative_strength": _round_or_none(relative_strength),
+        "trend_strength": _round_or_none(trend_strength),
+        "distance_to_52w_high_pct": _round_or_none(distance_to_52w_high_pct),
+        "swing_low": _round_or_none(swing_low),
+        "recent_low": _round_or_none(recent_low),
+        "stop_loss": _round_or_none(stop_loss),
+        "target_price": _round_or_none(target_price),
+        "atr14": _round_or_none(atr14),
+        "relative_volume": _round_or_none(relative_volume),
+        "volume_score": _round_or_none(volume_score),
     }
+
+    return result

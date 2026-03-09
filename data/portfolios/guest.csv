@@ -1,0 +1,2 @@
+position_id,symbol,buy_date,buy_price,shares,initial_stop_loss,current_stop_loss,target_price,strategy_tag,note,created_at,updated_at
+1293bdb1daf4,AAPL,2026-03-09,223.0,15.0,,,,,Test,2026-03-09T15:02:02,2026-03-09T15:02:02

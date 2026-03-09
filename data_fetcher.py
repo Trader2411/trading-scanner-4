@@ -7,8 +7,26 @@ import pandas as pd
 import streamlit as st
 import yfinance as yf
 
-from config import HIST_CACHE_TTL, LIVE_CACHE_TTL
+try:
+    from config import HIST_CACHE_TTL
+except Exception:
+    try:
+        from config import CACHE_MARKET_DATA as HIST_CACHE_TTL
+    except Exception:
+        HIST_CACHE_TTL = 1800
 
+try:
+    from config import LIVE_CACHE_TTL
+except Exception:
+    try:
+        from config import CACHE_LIVE_PRICES as LIVE_CACHE_TTL
+    except Exception:
+        LIVE_CACHE_TTL = 30
+
+
+# ============================================================
+# Interne Hilfsfunktionen
+# ============================================================
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -42,7 +60,7 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 def _safe_float(value) -> Optional[float]:
     try:
-        if value is None or pd.isna(value):
+        if value is None or pd.isna(value) or value == "":
             return None
         return float(value)
     except Exception:
@@ -68,12 +86,34 @@ def _extract_close_series(df: pd.DataFrame) -> pd.Series:
     return close
 
 
+def _extract_low_series(df: pd.DataFrame) -> pd.Series:
+    if df is None or df.empty or "Low" not in df.columns:
+        return pd.Series(dtype=float)
+
+    low = df["Low"]
+
+    if isinstance(low, pd.DataFrame):
+        if low.empty:
+            return pd.Series(dtype=float)
+        low = low.iloc[:, 0]
+
+    low = pd.to_numeric(low, errors="coerce").dropna()
+    return low
+
+
+# ============================================================
+# Historische Daten
+# ============================================================
+
 @st.cache_data(ttl=HIST_CACHE_TTL, show_spinner=False)
 def get_historical_data(
     symbol: str,
     period: str = "1y",
     interval: str = "1d",
 ) -> pd.DataFrame:
+    """
+    Lädt historische Kursdaten robust über yfinance.
+    """
     for attempt in range(1, 4):
         try:
             df = yf.download(
@@ -111,6 +151,27 @@ def get_historical_data(
 
     return pd.DataFrame()
 
+
+def batch_get_historical(
+    symbols: List[str],
+    period: str = "1y",
+    interval: str = "1d",
+) -> Dict[str, pd.DataFrame]:
+    """
+    Komfortfunktion für mehrere Symbole.
+    """
+    if not symbols:
+        return {}
+
+    return {
+        symbol: get_historical_data(symbol, period=period, interval=interval)
+        for symbol in symbols
+    }
+
+
+# ============================================================
+# Live-Preis-Logik
+# ============================================================
 
 def _extract_from_fast_info(fast_info) -> Dict:
     if not fast_info:
@@ -202,6 +263,9 @@ def _extract_from_history(ticker: yf.Ticker) -> Dict:
 
 @st.cache_data(ttl=LIVE_CACHE_TTL, show_spinner=False)
 def get_live_price_payload(symbol: str) -> Dict:
+    """
+    Liefert bevorzugt einen aktuellen Marktpreis.
+    """
     for attempt in range(1, 3):
         try:
             ticker = yf.Ticker(symbol)
@@ -237,6 +301,10 @@ def get_live_price_payload(symbol: str) -> Dict:
     }
 
 
+# ============================================================
+# Preis-Snapshots
+# ============================================================
+
 def get_analysis_price(hist: pd.DataFrame) -> Optional[float]:
     close = _extract_close_series(hist)
     if close.empty:
@@ -249,6 +317,9 @@ def get_price_snapshot(
     hist: pd.DataFrame,
     fetch_live_price: bool = True,
 ) -> Dict:
+    """
+    Liefert Analysepreis, Marktpreis und Preisabweichung.
+    """
     analysis_price = get_analysis_price(hist)
 
     market_price = None
@@ -277,6 +348,10 @@ def get_price_snapshot(
         "market_price_available": market_price_available,
     }
 
+
+# ============================================================
+# Komfortfunktionen für DataFrames
+# ============================================================
 
 def enrich_with_live_prices(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty or "symbol" not in df.columns:
@@ -324,12 +399,25 @@ def enrich_top_rows_with_live_prices(df: pd.DataFrame, top_n: int = 3) -> pd.Dat
     return enrich_with_live_prices(result)
 
 
-def batch_get_historical(
-    symbols: List[str],
-    period: str = "1y",
-    interval: str = "1d",
-) -> Dict[str, pd.DataFrame]:
-    return {
-        symbol: get_historical_data(symbol, period, interval)
-        for symbol in symbols
-    }
+# ============================================================
+# Zusatzfunktionen für Portfolio / Analyse
+# ============================================================
+
+def get_latest_close_from_history(symbol: str, period: str = "1y", interval: str = "1d") -> Optional[float]:
+    hist = get_historical_data(symbol, period=period, interval=interval)
+    close = _extract_close_series(hist)
+
+    if close.empty:
+        return None
+
+    return _safe_float(close.iloc[-1])
+
+
+def get_latest_low_from_history(symbol: str, period: str = "1y", interval: str = "1d") -> Optional[float]:
+    hist = get_historical_data(symbol, period=period, interval=interval)
+    low = _extract_low_series(hist)
+
+    if low.empty:
+        return None
+
+    return _safe_float(low.iloc[-1])
