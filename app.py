@@ -14,6 +14,9 @@ from universe_loader import (
     kombiniere_universen
 )
 
+def refresh_data():
+    st.cache_data.clear()
+
 st.set_page_config(
     page_title="Trading Scanner 4.0",
     layout="wide"
@@ -211,6 +214,10 @@ st.title("Trading Scanner 4.0")
 
 with st.sidebar:
     st.header("Steuerung")
+
+    if st.button("🔄 Daten aktualisieren"):
+        st.cache_data.clear()
+        st.rerun()
 
     ausgewaehlte_universen = st.multiselect(
         "Aktienuniversen auswählen",
