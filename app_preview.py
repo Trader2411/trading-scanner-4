@@ -29,22 +29,62 @@ st.markdown(
     --green: #18c964;
     --yellow: #f5c451;
     --red: #ef5350;
-    --space-block: 22px;
+    --space-block: 28px;
+    --radius-card: 16px;
 }
 
-.main { background-color: var(--bg-main); }
-.block-container { padding-top: 0.9rem; padding-bottom: 2rem; }
+html, body, [class*="css"] {
+    font-family: "Segoe UI", sans-serif;
+}
 
-header[data-testid="stHeader"] { visibility: hidden; height: 0; }
-div[data-testid="stToolbar"] { visibility: hidden; height: 0; position: fixed; }
-button[kind="header"] { display: none !important; }
-[data-testid="collapsedControl"] { display: none !important; }
+.main {
+    background-color: var(--bg-main);
+}
 
+.block-container {
+    padding-top: 0.85rem;
+    padding-bottom: 2.2rem;
+}
+
+/* Streamlit Header / Toolbar ausblenden */
+header[data-testid="stHeader"] {
+    visibility: hidden;
+    height: 0;
+}
+
+div[data-testid="stToolbar"] {
+    visibility: hidden;
+    height: 0;
+    position: fixed;
+}
+
+button[kind="header"] {
+    display: none !important;
+}
+
+[data-testid="collapsedControl"] {
+    display: none !important;
+}
+
+/* Sidebar */
 section[data-testid="stSidebar"] {
     background: var(--sidebar-bg);
     border-right: 1px solid rgba(255,255,255,0.06);
 }
-section[data-testid="stSidebar"] * { color: #f8fafc !important; }
+
+section[data-testid="stSidebar"] * {
+    color: #f8fafc !important;
+}
+
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] .stMarkdown p,
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] div {
+    line-height: 1.35 !important;
+    letter-spacing: 0 !important;
+}
+
 section[data-testid="stSidebar"] .stTextInput input,
 section[data-testid="stSidebar"] .stNumberInput input,
 section[data-testid="stSidebar"] .stDateInput input {
@@ -52,13 +92,16 @@ section[data-testid="stSidebar"] .stDateInput input {
     background: #ffffff !important;
     border-radius: 10px !important;
 }
+
 section[data-testid="stSidebar"] div[data-baseweb="select"] {
     background: #ffffff !important;
     border-radius: 10px !important;
 }
+
 section[data-testid="stSidebar"] div[data-baseweb="select"] * {
     color: #0b1220 !important;
 }
+
 section[data-testid="stSidebar"] button {
     color: #0b1220 !important;
     background: #ffffff !important;
@@ -67,51 +110,76 @@ section[data-testid="stSidebar"] button {
     border-radius: 10px !important;
 }
 
+section[data-testid="stSidebar"] .stCheckbox {
+    margin-bottom: 0.2rem !important;
+}
+
+section[data-testid="stSidebar"] .stSelectbox,
+section[data-testid="stSidebar"] .stSlider,
+section[data-testid="stSidebar"] .stTextInput {
+    margin-bottom: 0.55rem !important;
+}
+
+/* Titel */
 .app-title {
     font-size: 2.25rem;
     font-weight: 800;
     color: var(--text-main);
     margin-bottom: 0.15rem;
+    line-height: 1.1;
 }
+
 .app-subtitle {
     color: var(--text-soft);
     font-size: 0.95rem;
     margin-bottom: 0.35rem;
 }
+
 .app-note {
     color: var(--text-soft);
     font-size: 0.84rem;
     margin-bottom: var(--space-block);
 }
-.section-gap { height: var(--space-block); }
 
+/* Einheitliche Abstände */
+.section-gap {
+    height: var(--space-block);
+}
+
+/* Markt-Kacheln */
 .metric-card {
     background: var(--bg-card-dark);
     border-radius: 14px;
     padding: 0.95rem 1rem;
     color: white;
-    min-height: 86px;
+    min-height: 90px;
     box-shadow: 0 4px 14px rgba(5, 17, 40, 0.10);
+    margin-bottom: 0;
 }
+
 .metric-label {
     color: #c3cede;
     font-size: 0.78rem;
     margin-bottom: 0.15rem;
 }
+
 .metric-value {
     font-size: 1.08rem;
     font-weight: 800;
     color: white;
 }
 
+/* Setup-Karten */
 .setup-card {
     background: var(--bg-card-dark);
-    border-radius: 16px;
+    border-radius: var(--radius-card);
     padding: 1rem;
     color: white;
-    min-height: 245px;
+    min-height: 255px;
     box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
+    margin-bottom: 0;
 }
+
 .setup-symbol {
     font-size: 1.5rem;
     font-weight: 800;
@@ -119,22 +187,26 @@ section[data-testid="stSidebar"] button {
     line-height: 1.1;
     margin-bottom: 0.2rem;
 }
+
 .setup-line {
     font-size: 0.87rem;
     margin-bottom: 0.18rem;
     color: #f3f6fb;
 }
+
 .dot-row {
     display: flex;
     gap: 6px;
     margin-bottom: 8px;
 }
+
 .dot-green, .dot-yellow, .dot-red {
     width: 12px;
     height: 12px;
     border-radius: 50%;
     display: inline-block;
 }
+
 .dot-green { background: var(--green); }
 .dot-yellow { background: var(--yellow); }
 .dot-red { background: var(--red); }
@@ -142,20 +214,75 @@ section[data-testid="stSidebar"] button {
 .info-inline {
     color: var(--text-soft);
     font-size: 0.82rem;
-    margin-top: 0.25rem;
+    margin-top: 0.3rem;
     margin-bottom: 0;
 }
 
+/* Expander / Tabelle */
+div[data-testid="stExpander"] {
+    margin: 0 !important;
+}
+
+[data-testid="stDataFrame"] {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Mobile */
 @media (max-width: 900px) {
-    :root { --space-block: 18px; }
-    .app-title { font-size: 1.8rem; }
-    .setup-card { min-height: auto; padding: 0.85rem; }
-    .setup-symbol { font-size: 1.3rem; }
-    .setup-line { font-size: 0.83rem; }
+    :root {
+        --space-block: 22px;
+    }
+
+    .app-title {
+        font-size: 1.85rem;
+    }
+
+    .app-subtitle {
+        font-size: 0.92rem;
+    }
+
+    .app-note {
+        font-size: 0.84rem;
+        line-height: 1.5;
+    }
+
+    .metric-card,
+    .setup-card {
+        padding: 0.9rem;
+    }
+
+    .setup-card {
+        min-height: auto;
+    }
+
+    .setup-symbol {
+        font-size: 1.28rem;
+    }
+
+    .setup-line {
+        font-size: 0.83rem;
+        line-height: 1.4;
+    }
+
     .block-container {
-        padding-top: 0.7rem;
+        padding-top: 0.75rem;
         padding-left: 0.8rem;
         padding-right: 0.8rem;
+    }
+
+    .metric-card,
+    .setup-card {
+        margin-bottom: 14px !important;
+    }
+
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] .stMarkdown p,
+    section[data-testid="stSidebar"] .stCaption,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] div {
+        font-size: 0.88rem !important;
+        line-height: 1.35 !important;
     }
 }
 </style>
@@ -172,6 +299,7 @@ def fmt_value(value, decimals: int = 2, suffix: str = "") -> str:
 
 def get_dot_html(row: pd.Series) -> str:
     dots = []
+
     if bool(row.get("golden_cross", False)):
         dots.append('<span class="dot-green"></span>')
 
@@ -306,9 +434,21 @@ def get_marketchart_view(df: pd.DataFrame, add_live_prices: bool) -> pd.DataFram
         result = pd.concat([top_part, rest_part], ignore_index=True)
 
     preview_cols = [
-        "symbol", "name", "sector", "status", "analysis_price", "market_price",
-        "price_gap_pct", "market_price_source", "momentum", "relative_strength",
-        "golden_cross", "trade_score", "target_price", "stop_loss", "signal",
+        "symbol",
+        "name",
+        "sector",
+        "status",
+        "analysis_price",
+        "market_price",
+        "price_gap_pct",
+        "market_price_source",
+        "momentum",
+        "relative_strength",
+        "golden_cross",
+        "trade_score",
+        "target_price",
+        "stop_loss",
+        "signal",
     ]
     show = [c for c in preview_cols if c in result.columns]
     return result[show]
@@ -319,21 +459,28 @@ with st.sidebar:
 
     refresh = st.button("🔄 Aktualisieren", use_container_width=True)
 
-    universe_name = st.selectbox("Aktienuniversum auswählen", get_available_universes(), index=0)
-    include_europe_listings = st.checkbox("Europa Listings einbeziehen", value=True)
-    add_live_prices_to_markettable = st.checkbox("Live-Kurse in Marktcharts", value=False)
-    top_n = st.selectbox("Anzahl Top-Trades", [3, 5, 10], index=0)
-    min_trade_score = st.slider("Mindest-Trade-Score", 0, 100, 60)
+    universe_name = st.selectbox("Aktienuniversum", get_available_universes(), index=0)
+    include_europe_listings = st.checkbox("Europa Listings", value=True)
+    add_live_prices_to_markettable = st.checkbox("Live-Kurse", value=False)
+    top_n = st.selectbox("Top-Trades", [3, 5, 10], index=0)
+    min_trade_score = st.slider("Mindest-Score", 0, 100, 60)
 
 if refresh:
     st.cache_data.clear()
 
 st.markdown('<div class="app-title">Trading Scanner preview</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="app-subtitle">{APP_SUBTITLE}</div>', unsafe_allow_html=True)
-st.markdown('<div class="app-note">Diese Vorversion zeigt nur den Markt-Scanner und keine Portfolio-Daten.</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="app-note">Diese Vorversion zeigt nur den Markt-Scanner und keine Portfolio-Daten.</div>',
+    unsafe_allow_html=True,
+)
 
 try:
-    symbols = load_universe(universe_name, include_europe_listings=include_europe_listings, include_commodities_in_all=False)
+    symbols = load_universe(
+        universe_name,
+        include_europe_listings=include_europe_listings,
+        include_commodities_in_all=False,
+    )
 
     with st.spinner("Scanner lädt Marktdaten..."):
         scan_df, rohstoffe_df, market = load_core_data(tuple(symbols))
@@ -364,7 +511,11 @@ try:
     with c4:
         render_metric("Aktivsignal", action_signal)
 
-    st.markdown(f'<div class="info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>',
+        unsafe_allow_html=True,
+    )
+
     st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 
     st.header(f"Top {top_n} Trading Setups")

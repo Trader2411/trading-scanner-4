@@ -21,7 +21,7 @@ from portfolio_store import (
 )
 
 st.set_page_config(
-    page_title=APP_NAME,
+    page_title="Trading Scanner 4.2",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -40,7 +40,7 @@ st.markdown(
     --green: #18c964;
     --yellow: #f5c451;
     --red: #ef5350;
-    --space-block: 22px;
+    --space-block: 28px;
     --radius-card: 16px;
 }
 
@@ -53,10 +53,11 @@ html, body, [class*="css"] {
 }
 
 .block-container {
-    padding-top: 0.9rem;
-    padding-bottom: 2rem;
+    padding-top: 0.85rem;
+    padding-bottom: 2.2rem;
 }
 
+/* Streamlit Header / Toolbar ausblenden */
 header[data-testid="stHeader"] {
     visibility: hidden;
     height: 0;
@@ -76,6 +77,7 @@ button[kind="header"] {
     display: none !important;
 }
 
+/* Sidebar */
 section[data-testid="stSidebar"] {
     background: var(--sidebar-bg);
     border-right: 1px solid rgba(255,255,255,0.06);
@@ -83,6 +85,15 @@ section[data-testid="stSidebar"] {
 
 section[data-testid="stSidebar"] * {
     color: #f8fafc !important;
+}
+
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] .stMarkdown p,
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] div {
+    line-height: 1.35 !important;
+    letter-spacing: 0 !important;
 }
 
 section[data-testid="stSidebar"] .stTextInput input,
@@ -110,6 +121,17 @@ section[data-testid="stSidebar"] button {
     border-radius: 10px !important;
 }
 
+section[data-testid="stSidebar"] .stCheckbox {
+    margin-bottom: 0.2rem !important;
+}
+
+section[data-testid="stSidebar"] .stSelectbox,
+section[data-testid="stSidebar"] .stSlider,
+section[data-testid="stSidebar"] .stTextInput {
+    margin-bottom: 0.55rem !important;
+}
+
+/* Titel */
 .app-title {
     font-size: 2.25rem;
     font-weight: 800;
@@ -130,17 +152,20 @@ section[data-testid="stSidebar"] button {
     margin-bottom: var(--space-block);
 }
 
+/* Einheitliche Abstände */
 .section-gap {
     height: var(--space-block);
 }
 
+/* Markt-Kacheln */
 .metric-card {
     background: var(--bg-card-dark);
     border-radius: 14px;
     padding: 0.95rem 1rem;
     color: white;
-    min-height: 86px;
+    min-height: 90px;
     box-shadow: 0 4px 14px rgba(5, 17, 40, 0.10);
+    margin-bottom: 0;
 }
 
 .metric-label {
@@ -155,13 +180,15 @@ section[data-testid="stSidebar"] button {
     color: white;
 }
 
+/* Setup-Karten */
 .setup-card {
     background: var(--bg-card-dark);
     border-radius: var(--radius-card);
     padding: 1rem;
     color: white;
-    min-height: 245px;
+    min-height: 255px;
     box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
+    margin-bottom: 0;
 }
 
 .setup-symbol {
@@ -198,10 +225,11 @@ section[data-testid="stSidebar"] button {
 .info-inline {
     color: var(--text-soft);
     font-size: 0.82rem;
-    margin-top: 0.25rem;
+    margin-top: 0.3rem;
     margin-bottom: 0;
 }
 
+/* Hinweise */
 .signal-chip {
     display: inline-block;
     border-radius: 999px;
@@ -222,12 +250,13 @@ section[data-testid="stSidebar"] button {
     border-radius: var(--radius-card);
     padding: 0.95rem;
     color: white;
-    min-height: 170px;
+    min-height: 180px;
     box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
+    margin-bottom: 0;
 }
 
 .hint-title {
-    font-size: 1.1rem;
+    font-size: 1.08rem;
     font-weight: 800;
     color: white;
     margin-bottom: 0.25rem;
@@ -245,15 +274,12 @@ section[data-testid="stSidebar"] button {
     margin-top: 0.25rem;
 }
 
+/* Helle Karten */
 .card-shell {
     background: var(--bg-card-light);
     border: 1px solid var(--border-soft);
     border-radius: var(--radius-card);
     padding: 1rem;
-}
-
-.card-shell h3, .card-shell h4 {
-    color: var(--text-main);
 }
 
 .compact-note {
@@ -262,6 +288,16 @@ section[data-testid="stSidebar"] button {
     margin-bottom: 0.7rem;
 }
 
+/* Portfolio Metriken */
+[data-testid="stMetric"] {
+    background: #ffffff;
+    border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    padding: 0.8rem 0.95rem;
+    min-height: 88px;
+}
+
+/* Expander / Tabelle */
 div[data-testid="stExpander"] {
     margin: 0 !important;
 }
@@ -271,24 +307,30 @@ div[data-testid="stExpander"] {
     overflow: hidden;
 }
 
+/* Mobile */
 @media (max-width: 900px) {
     :root {
-        --space-block: 18px;
+        --space-block: 22px;
     }
 
     .app-title {
-        font-size: 1.8rem;
+        font-size: 1.85rem;
     }
 
     .app-subtitle {
-        font-size: 0.9rem;
+        font-size: 0.92rem;
+    }
+
+    .app-note {
+        font-size: 0.84rem;
+        line-height: 1.5;
     }
 
     .metric-card,
     .setup-card,
     .hint-card,
     .card-shell {
-        padding: 0.85rem;
+        padding: 0.9rem;
     }
 
     .setup-card,
@@ -297,18 +339,35 @@ div[data-testid="stExpander"] {
     }
 
     .setup-symbol {
-        font-size: 1.3rem;
+        font-size: 1.28rem;
     }
 
     .setup-line,
     .hint-line {
         font-size: 0.83rem;
+        line-height: 1.4;
     }
 
     .block-container {
-        padding-top: 0.7rem;
+        padding-top: 0.75rem;
         padding-left: 0.8rem;
         padding-right: 0.8rem;
+    }
+
+    .metric-card,
+    .setup-card,
+    .hint-card,
+    [data-testid="stMetric"] {
+        margin-bottom: 14px !important;
+    }
+
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] .stMarkdown p,
+    section[data-testid="stSidebar"] .stCaption,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] div {
+        font-size: 0.88rem !important;
+        line-height: 1.35 !important;
     }
 }
 </style>
@@ -695,6 +754,48 @@ def render_add_position_section() -> None:
     st.markdown('</div>', unsafe_allow_html=True)
 
 
+def render_single_position_chart(raw_row: pd.Series, analyzed_row: pd.Series | None) -> None:
+    symbol = str(raw_row.get("symbol"))
+
+    hist = get_historical_data(symbol, period="1y", interval="1d")
+    if hist is None or hist.empty or "Close" not in hist.columns:
+        st.warning("Für diese Position konnten keine historischen Kursdaten geladen werden.")
+        return
+
+    chart_df = hist.copy()
+    chart_df["Close"] = pd.to_numeric(chart_df["Close"], errors="coerce")
+    chart_df["SMA50"] = chart_df["Close"].rolling(50).mean()
+    chart_df["SMA200"] = chart_df["Close"].rolling(200).mean()
+    chart_df = chart_df.dropna(subset=["Close"]).copy()
+
+    fig, ax = plt.subplots(figsize=(11, 4.6))
+    ax.plot(chart_df.index, chart_df["Close"], label="Close")
+    ax.plot(chart_df.index, chart_df["SMA50"], label="SMA50")
+    ax.plot(chart_df.index, chart_df["SMA200"], label="SMA200")
+
+    current_stop_loss = raw_row.get("current_stop_loss")
+    buy_price = raw_row.get("buy_price")
+    stop_loss = analyzed_row.get("stop_loss") if analyzed_row is not None else None
+    trailing_stop = analyzed_row.get("trailing_stop") if analyzed_row is not None else None
+
+    if current_stop_loss is not None and not pd.isna(current_stop_loss):
+        ax.axhline(float(current_stop_loss), linestyle="--", label="Gespeicherter Stop")
+    if stop_loss is not None and not pd.isna(stop_loss):
+        ax.axhline(float(stop_loss), linestyle=":", label="Stop")
+    if trailing_stop is not None and not pd.isna(trailing_stop):
+        ax.axhline(float(trailing_stop), linestyle="-.", label="Trailing")
+    if buy_price is not None and not pd.isna(buy_price):
+        ax.axhline(float(buy_price), linestyle="-", label="Kaufkurs")
+
+    ax.set_title(f"{symbol} – Portfolio Chart")
+    ax.set_xlabel("Datum")
+    ax.set_ylabel("Preis")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+
+    st.pyplot(fig, use_container_width=True)
+
+
 def render_manage_existing_position(raw_portfolio_df: pd.DataFrame, portfolio_df: pd.DataFrame) -> None:
     st.markdown('<div class="card-shell">', unsafe_allow_html=True)
     st.subheader("Bestehende Position verwalten")
@@ -806,48 +907,6 @@ def render_manage_existing_position(raw_portfolio_df: pd.DataFrame, portfolio_df
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-def render_single_position_chart(raw_row: pd.Series, analyzed_row: pd.Series | None) -> None:
-    symbol = str(raw_row.get("symbol"))
-
-    hist = get_historical_data(symbol, period="1y", interval="1d")
-    if hist is None or hist.empty or "Close" not in hist.columns:
-        st.warning("Für diese Position konnten keine historischen Kursdaten geladen werden.")
-        return
-
-    chart_df = hist.copy()
-    chart_df["Close"] = pd.to_numeric(chart_df["Close"], errors="coerce")
-    chart_df["SMA50"] = chart_df["Close"].rolling(50).mean()
-    chart_df["SMA200"] = chart_df["Close"].rolling(200).mean()
-    chart_df = chart_df.dropna(subset=["Close"]).copy()
-
-    fig, ax = plt.subplots(figsize=(11, 4.6))
-    ax.plot(chart_df.index, chart_df["Close"], label="Close")
-    ax.plot(chart_df.index, chart_df["SMA50"], label="SMA50")
-    ax.plot(chart_df.index, chart_df["SMA200"], label="SMA200")
-
-    current_stop_loss = raw_row.get("current_stop_loss")
-    buy_price = raw_row.get("buy_price")
-    stop_loss = analyzed_row.get("stop_loss") if analyzed_row is not None else None
-    trailing_stop = analyzed_row.get("trailing_stop") if analyzed_row is not None else None
-
-    if current_stop_loss is not None and not pd.isna(current_stop_loss):
-        ax.axhline(float(current_stop_loss), linestyle="--", label="Gespeicherter Stop")
-    if stop_loss is not None and not pd.isna(stop_loss):
-        ax.axhline(float(stop_loss), linestyle=":", label="Stop")
-    if trailing_stop is not None and not pd.isna(trailing_stop):
-        ax.axhline(float(trailing_stop), linestyle="-.", label="Trailing")
-    if buy_price is not None and not pd.isna(buy_price):
-        ax.axhline(float(buy_price), linestyle="-", label="Kaufkurs")
-
-    ax.set_title(f"{symbol} – Portfolio Chart")
-    ax.set_xlabel("Datum")
-    ax.set_ylabel("Preis")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-
-    st.pyplot(fig, use_container_width=True)
-
-
 @st.cache_data(ttl=600, show_spinner=False)
 def load_core_data(symbols_key: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     symbols = list(symbols_key)
@@ -899,22 +958,21 @@ with st.sidebar:
 
     refresh = st.button("🔄 Aktualisieren", use_container_width=True)
 
-    universe_name = st.selectbox("Aktienuniversum auswählen", get_available_universes(), index=0)
-    include_europe_listings = st.checkbox("Europa Listings einbeziehen", value=True)
-    load_portfolio_monitor = st.checkbox("Portfolio Monitor laden", value=True)
-    add_live_prices_to_markettable = st.checkbox("Live-Kurse in Marktcharts", value=False)
-    top_n = st.selectbox("Anzahl Top-Trades", [3, 5, 10], index=0)
-    min_trade_score = st.slider("Mindest-Trade-Score", 0, 100, 60)
+    universe_name = st.selectbox("Aktienuniversum", get_available_universes(), index=0)
+    include_europe_listings = st.checkbox("Europa Listings", value=True)
+    load_portfolio_monitor = st.checkbox("Portfolio Monitor", value=True)
+    add_live_prices_to_markettable = st.checkbox("Live-Kurse", value=False)
+    top_n = st.selectbox("Top-Trades", [3, 5, 10], index=0)
+    min_trade_score = st.slider("Mindest-Score", 0, 100, 60)
 
     st.markdown("---")
     st.markdown("### Portfolio-Profil")
     st.text_input(
-        "Eigenes Profil / Benutzername",
+        "Profilname",
         value=st.session_state.get("portfolio_user_key", "guest"),
         key="portfolio_user_key_input",
         help="Jedes Profil hat eine eigene Portfolio-Datei.",
     )
-    st.caption("Live-Kurse und Analysepreise werden getrennt verarbeitet.")
 
 if refresh:
     st.cache_data.clear()
@@ -959,7 +1017,11 @@ try:
     with c4:
         render_metric("Aktivsignal", action_signal)
 
-    st.markdown(f'<div class="info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>',
+        unsafe_allow_html=True,
+    )
+
     st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 
     st.header(f"Top {top_n} Trading Setups")
