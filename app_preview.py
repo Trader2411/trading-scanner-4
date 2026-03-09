@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from config import APP_NAME, APP_SUBTITLE
+from config import APP_SUBTITLE
 from universe_loader import get_available_universes, load_universe
 from stock_scanner import scan_symbols, filter_top_candidates
 from data_fetcher import enrich_with_live_prices
@@ -21,259 +21,173 @@ st.markdown(
     """
 <style>
 :root {
-    --bg-main: #f4f6f9;
-    --bg-card-dark: linear-gradient(180deg, #071225 0%, #0b1730 100%);
-    --text-main: #182033;
-    --text-soft: #667085;
-    --sidebar-bg: linear-gradient(180deg, #11182b 0%, #18213a 100%);
-    --green: #18c964;
-    --yellow: #f5c451;
-    --red: #ef5350;
-    --space-block: 28px;
-    --radius-card: 16px;
-}
-
-html, body, [class*="css"] {
-    font-family: "Segoe UI", sans-serif;
-}
-
-.main {
-    background-color: var(--bg-main);
+    --space-block: 24px;
+    --radius-card: 18px;
+    --card-dark-bg: linear-gradient(180deg, #071225 0%, #0b1730 100%);
+    --card-dark-text: #ffffff;
+    --card-dark-soft: #c9d4e5;
 }
 
 .block-container {
-    padding-top: 0.85rem;
-    padding-bottom: 2.2rem;
+    padding-top: 1rem;
+    padding-bottom: 2rem;
 }
 
-/* Streamlit Header / Toolbar ausblenden */
-header[data-testid="stHeader"] {
-    visibility: hidden;
-    height: 0;
+.section-gap {
+    height: var(--space-block);
 }
 
-div[data-testid="stToolbar"] {
-    visibility: hidden;
-    height: 0;
-    position: fixed;
+.app-title {
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 800;
+    line-height: 1.05;
+    margin-bottom: 0.25rem;
 }
 
-button[kind="header"] {
-    display: none !important;
+.app-subtitle {
+    font-size: 1rem;
+    opacity: 0.85;
+    margin-bottom: 0.35rem;
 }
 
-[data-testid="collapsedControl"] {
-    display: none !important;
+.app-note {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin-bottom: var(--space-block);
+    max-width: 900px;
 }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: var(--sidebar-bg);
-    border-right: 1px solid rgba(255,255,255,0.06);
-}
-
-section[data-testid="stSidebar"] * {
-    color: #f8fafc !important;
-}
-
+/* Sidebar readability */
 section[data-testid="stSidebar"] label,
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stCaption,
 section[data-testid="stSidebar"] span,
 section[data-testid="stSidebar"] div {
     line-height: 1.35 !important;
-    letter-spacing: 0 !important;
 }
 
-section[data-testid="stSidebar"] .stTextInput input,
-section[data-testid="stSidebar"] .stNumberInput input,
-section[data-testid="stSidebar"] .stDateInput input {
-    color: #0b1220 !important;
-    background: #ffffff !important;
-    border-radius: 10px !important;
-}
-
-section[data-testid="stSidebar"] div[data-baseweb="select"] {
-    background: #ffffff !important;
-    border-radius: 10px !important;
-}
-
-section[data-testid="stSidebar"] div[data-baseweb="select"] * {
-    color: #0b1220 !important;
-}
-
-section[data-testid="stSidebar"] button {
-    color: #0b1220 !important;
-    background: #ffffff !important;
-    border: 1px solid #d8e0ea !important;
-    font-weight: 700 !important;
-    border-radius: 10px !important;
-}
-
-section[data-testid="stSidebar"] .stCheckbox {
-    margin-bottom: 0.2rem !important;
-}
-
+section[data-testid="stSidebar"] .stCheckbox,
 section[data-testid="stSidebar"] .stSelectbox,
-section[data-testid="stSidebar"] .stSlider,
-section[data-testid="stSidebar"] .stTextInput {
-    margin-bottom: 0.55rem !important;
+section[data-testid="stSidebar"] .stSlider {
+    margin-bottom: 0.45rem !important;
 }
 
-/* Titel */
-.app-title {
-    font-size: 2.25rem;
-    font-weight: 800;
-    color: var(--text-main);
-    margin-bottom: 0.15rem;
-    line-height: 1.1;
-}
-
-.app-subtitle {
-    color: var(--text-soft);
-    font-size: 0.95rem;
-    margin-bottom: 0.35rem;
-}
-
-.app-note {
-    color: var(--text-soft);
-    font-size: 0.84rem;
-    margin-bottom: var(--space-block);
-}
-
-/* Einheitliche Abstände */
-.section-gap {
-    height: var(--space-block);
-}
-
-/* Markt-Kacheln */
-.metric-card {
-    background: var(--bg-card-dark);
-    border-radius: 14px;
-    padding: 0.95rem 1rem;
-    color: white;
-    min-height: 90px;
-    box-shadow: 0 4px 14px rgba(5, 17, 40, 0.10);
-    margin-bottom: 0;
-}
-
-.metric-label {
-    color: #c3cede;
-    font-size: 0.78rem;
-    margin-bottom: 0.15rem;
-}
-
-.metric-value {
-    font-size: 1.08rem;
-    font-weight: 800;
-    color: white;
-}
-
-/* Setup-Karten */
-.setup-card {
-    background: var(--bg-card-dark);
+.ts-card-dark {
+    background: var(--card-dark-bg);
+    color: var(--card-dark-text);
     border-radius: var(--radius-card);
     padding: 1rem;
-    color: white;
-    min-height: 255px;
     box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
-    margin-bottom: 0;
 }
 
-.setup-symbol {
-    font-size: 1.5rem;
+.ts-metric-card {
+    min-height: 96px;
+}
+
+.ts-metric-label {
+    color: var(--card-dark-soft);
+    font-size: 0.8rem;
+    margin-bottom: 0.2rem;
+}
+
+.ts-metric-value {
+    font-size: 1.22rem;
     font-weight: 800;
-    color: white;
+}
+
+.ts-setup-card {
+    min-height: 250px;
+}
+
+.ts-setup-symbol {
+    font-size: 1.7rem;
+    font-weight: 800;
     line-height: 1.1;
     margin-bottom: 0.2rem;
 }
 
-.setup-line {
-    font-size: 0.87rem;
-    margin-bottom: 0.18rem;
+.ts-line {
+    font-size: 0.92rem;
+    line-height: 1.35;
+    margin-bottom: 0.12rem;
     color: #f3f6fb;
 }
 
-.dot-row {
+.ts-dot-row {
     display: flex;
     gap: 6px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 
-.dot-green, .dot-yellow, .dot-red {
+.ts-dot-green,
+.ts-dot-yellow,
+.ts-dot-red {
     width: 12px;
     height: 12px;
     border-radius: 50%;
     display: inline-block;
 }
 
-.dot-green { background: var(--green); }
-.dot-yellow { background: var(--yellow); }
-.dot-red { background: var(--red); }
+.ts-dot-green { background: #18c964; }
+.ts-dot-yellow { background: #f5c451; }
+.ts-dot-red { background: #ef5350; }
 
-.info-inline {
-    color: var(--text-soft);
-    font-size: 0.82rem;
-    margin-top: 0.3rem;
-    margin-bottom: 0;
-}
-
-/* Expander / Tabelle */
-div[data-testid="stExpander"] {
-    margin: 0 !important;
+.ts-info-inline {
+    font-size: 0.9rem;
+    opacity: 0.78;
+    margin-top: 0.35rem;
 }
 
 [data-testid="stDataFrame"] {
-    border-radius: 12px;
+    border-radius: 14px;
     overflow: hidden;
 }
 
-/* Mobile */
 @media (max-width: 900px) {
     :root {
-        --space-block: 22px;
-    }
-
-    .app-title {
-        font-size: 1.85rem;
-    }
-
-    .app-subtitle {
-        font-size: 0.92rem;
-    }
-
-    .app-note {
-        font-size: 0.84rem;
-        line-height: 1.5;
-    }
-
-    .metric-card,
-    .setup-card {
-        padding: 0.9rem;
-    }
-
-    .setup-card {
-        min-height: auto;
-    }
-
-    .setup-symbol {
-        font-size: 1.28rem;
-    }
-
-    .setup-line {
-        font-size: 0.83rem;
-        line-height: 1.4;
+        --space-block: 20px;
     }
 
     .block-container {
-        padding-top: 0.75rem;
-        padding-left: 0.8rem;
-        padding-right: 0.8rem;
+        padding-top: 0.9rem;
+        padding-left: 0.9rem;
+        padding-right: 0.9rem;
     }
 
-    .metric-card,
-    .setup-card {
-        margin-bottom: 14px !important;
+    .app-title {
+        font-size: 1.95rem;
+    }
+
+    .app-subtitle {
+        font-size: 0.98rem;
+        line-height: 1.4;
+    }
+
+    .app-note {
+        font-size: 0.92rem;
+        line-height: 1.55;
+    }
+
+    .ts-card-dark {
+        padding: 0.9rem;
+    }
+
+    .ts-metric-card,
+    .ts-setup-card {
+        min-height: auto;
+    }
+
+    .ts-setup-symbol {
+        font-size: 1.45rem;
+    }
+
+    .ts-line {
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+
+    [data-testid="column"] .ts-card-dark {
+        margin-bottom: 14px;
     }
 
     section[data-testid="stSidebar"] label,
@@ -281,8 +195,7 @@ div[data-testid="stExpander"] {
     section[data-testid="stSidebar"] .stCaption,
     section[data-testid="stSidebar"] span,
     section[data-testid="stSidebar"] div {
-        font-size: 0.88rem !important;
-        line-height: 1.35 !important;
+        font-size: 0.92rem !important;
     }
 }
 </style>
@@ -301,7 +214,7 @@ def get_dot_html(row: pd.Series) -> str:
     dots = []
 
     if bool(row.get("golden_cross", False)):
-        dots.append('<span class="dot-green"></span>')
+        dots.append('<span class="ts-dot-green"></span>')
 
     try:
         score = float(row.get("trade_score", 0))
@@ -309,21 +222,21 @@ def get_dot_html(row: pd.Series) -> str:
         score = 0.0
 
     if score >= 80:
-        dots.append('<span class="dot-green"></span>')
+        dots.append('<span class="ts-dot-green"></span>')
     elif score >= 65:
-        dots.append('<span class="dot-yellow"></span>')
+        dots.append('<span class="ts-dot-yellow"></span>')
     else:
-        dots.append('<span class="dot-red"></span>')
+        dots.append('<span class="ts-dot-red"></span>')
 
-    return f'<div class="dot-row">{"".join(dots)}</div>'
+    return f'<div class="ts-dot-row">{"".join(dots)}</div>'
 
 
 def render_metric(label: str, value: str) -> None:
     st.markdown(
         f"""
-<div class="metric-card">
-    <div class="metric-label">{label}</div>
-    <div class="metric-value">{value}</div>
+<div class="ts-card-dark ts-metric-card">
+    <div class="ts-metric-label">{label}</div>
+    <div class="ts-metric-value">{value}</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -347,17 +260,17 @@ def render_setup_card(row: pd.Series) -> None:
 
     st.markdown(
         f"""
-<div class="setup-card">
+<div class="ts-card-dark ts-setup-card">
     {get_dot_html(row)}
-    <div class="setup-symbol">{row.get("symbol", "-")}</div>
-    <div class="setup-line">{row.get("name", "-")}</div>
-    <div class="setup-line"><b>Signal:</b> {signal}</div>
-    <div class="setup-line"><b>Score:</b> {fmt_value(row.get("trade_score"), 0)}/100</div>
-    <div class="setup-line"><b>{price_label}:</b> {price_value}</div>
-    <div class="setup-line"><b>Ziel:</b> {fmt_value(row.get("target_price"))}</div>
-    <div class="setup-line"><b>Momentum:</b> {fmt_value(row.get("momentum"), 2, "%")}</div>
-    <div class="setup-line"><b>Stop:</b> {fmt_value(row.get("stop_loss"))}</div>
-    <div class="setup-line"><b>Quelle:</b> {source_text}</div>
+    <div class="ts-setup-symbol">{row.get("symbol", "-")}</div>
+    <div class="ts-line">{row.get("name", "-")}</div>
+    <div class="ts-line"><b>Signal:</b> {signal}</div>
+    <div class="ts-line"><b>Score:</b> {fmt_value(row.get("trade_score"), 0)}/100</div>
+    <div class="ts-line"><b>{price_label}:</b> {price_value}</div>
+    <div class="ts-line"><b>Ziel:</b> {fmt_value(row.get("target_price"))}</div>
+    <div class="ts-line"><b>Momentum:</b> {fmt_value(row.get("momentum"), 2, "%")}</div>
+    <div class="ts-line"><b>Stop:</b> {fmt_value(row.get("stop_loss"))}</div>
+    <div class="ts-line"><b>Quelle:</b> {source_text}</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -434,21 +347,9 @@ def get_marketchart_view(df: pd.DataFrame, add_live_prices: bool) -> pd.DataFram
         result = pd.concat([top_part, rest_part], ignore_index=True)
 
     preview_cols = [
-        "symbol",
-        "name",
-        "sector",
-        "status",
-        "analysis_price",
-        "market_price",
-        "price_gap_pct",
-        "market_price_source",
-        "momentum",
-        "relative_strength",
-        "golden_cross",
-        "trade_score",
-        "target_price",
-        "stop_loss",
-        "signal",
+        "symbol", "name", "sector", "status", "analysis_price", "market_price",
+        "price_gap_pct", "market_price_source", "momentum", "relative_strength",
+        "golden_cross", "trade_score", "target_price", "stop_loss", "signal",
     ]
     show = [c for c in preview_cols if c in result.columns]
     return result[show]
@@ -512,7 +413,7 @@ try:
         render_metric("Aktivsignal", action_signal)
 
     st.markdown(
-        f'<div class="info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>',
+        f'<div class="ts-info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>',
         unsafe_allow_html=True,
     )
 

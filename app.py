@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 
-from config import APP_NAME, APP_SUBTITLE
+from config import APP_SUBTITLE
 from universe_loader import get_available_universes, load_universe
 from stock_scanner import scan_symbols, filter_top_candidates
 from data_fetcher import enrich_with_live_prices, get_historical_data
@@ -30,335 +30,236 @@ st.markdown(
     """
 <style>
 :root {
-    --bg-main: #f4f6f9;
-    --bg-card-dark: linear-gradient(180deg, #071225 0%, #0b1730 100%);
-    --bg-card-light: #ffffff;
-    --border-soft: #dfe5ef;
-    --text-main: #182033;
-    --text-soft: #667085;
-    --sidebar-bg: linear-gradient(180deg, #11182b 0%, #18213a 100%);
-    --green: #18c964;
-    --yellow: #f5c451;
-    --red: #ef5350;
-    --space-block: 28px;
-    --radius-card: 16px;
+    --space-block: 24px;
+    --space-card: 14px;
+    --radius-card: 18px;
+    --card-dark-bg: linear-gradient(180deg, #071225 0%, #0b1730 100%);
+    --card-dark-text: #ffffff;
+    --card-dark-soft: #c9d4e5;
+    --signal-green: #1f8f45;
+    --signal-yellow: #c58a00;
+    --signal-red: #c93636;
 }
 
-html, body, [class*="css"] {
-    font-family: "Segoe UI", sans-serif;
-}
-
-.main {
-    background-color: var(--bg-main);
-}
-
+/* Global rhythm */
 .block-container {
-    padding-top: 0.85rem;
-    padding-bottom: 2.2rem;
+    padding-top: 1rem;
+    padding-bottom: 2rem;
 }
 
-/* Streamlit Header / Toolbar ausblenden */
-header[data-testid="stHeader"] {
-    visibility: hidden;
-    height: 0;
+.section-gap {
+    height: var(--space-block);
 }
 
-div[data-testid="stToolbar"] {
-    visibility: hidden;
-    height: 0;
-    position: fixed;
+/* App header */
+.app-title {
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 800;
+    line-height: 1.05;
+    margin-bottom: 0.25rem;
 }
 
-button[kind="header"] {
-    display: none !important;
+.app-subtitle {
+    font-size: 1rem;
+    opacity: 0.85;
+    margin-bottom: 0.35rem;
 }
 
-[data-testid="collapsedControl"] {
-    display: none !important;
+.app-note {
+    font-size: 0.9rem;
+    opacity: 0.8;
+    margin-bottom: var(--space-block);
+    max-width: 900px;
 }
 
-/* Sidebar */
-section[data-testid="stSidebar"] {
-    background: var(--sidebar-bg);
-    border-right: 1px solid rgba(255,255,255,0.06);
-}
-
-section[data-testid="stSidebar"] * {
-    color: #f8fafc !important;
-}
-
+/* Sidebar readability */
 section[data-testid="stSidebar"] label,
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stCaption,
 section[data-testid="stSidebar"] span,
 section[data-testid="stSidebar"] div {
     line-height: 1.35 !important;
-    letter-spacing: 0 !important;
 }
 
-section[data-testid="stSidebar"] .stTextInput input,
-section[data-testid="stSidebar"] .stNumberInput input,
-section[data-testid="stSidebar"] .stDateInput input {
-    color: #0b1220 !important;
-    background: #ffffff !important;
-    border-radius: 10px !important;
-}
-
-section[data-testid="stSidebar"] div[data-baseweb="select"] {
-    background: #ffffff !important;
-    border-radius: 10px !important;
-}
-
-section[data-testid="stSidebar"] div[data-baseweb="select"] * {
-    color: #0b1220 !important;
-}
-
-section[data-testid="stSidebar"] button {
-    color: #0b1220 !important;
-    background: #ffffff !important;
-    border: 1px solid #d8e0ea !important;
-    font-weight: 700 !important;
-    border-radius: 10px !important;
-}
-
-section[data-testid="stSidebar"] .stCheckbox {
-    margin-bottom: 0.2rem !important;
-}
-
+section[data-testid="stSidebar"] .stCheckbox,
 section[data-testid="stSidebar"] .stSelectbox,
 section[data-testid="stSidebar"] .stSlider,
 section[data-testid="stSidebar"] .stTextInput {
-    margin-bottom: 0.55rem !important;
+    margin-bottom: 0.45rem !important;
 }
 
-/* Titel */
-.app-title {
-    font-size: 2.25rem;
-    font-weight: 800;
-    color: var(--text-main);
-    margin-bottom: 0.15rem;
-    line-height: 1.1;
-}
-
-.app-subtitle {
-    color: var(--text-soft);
-    font-size: 0.95rem;
-    margin-bottom: 0.35rem;
-}
-
-.app-note {
-    color: var(--text-soft);
-    font-size: 0.84rem;
-    margin-bottom: var(--space-block);
-}
-
-/* Einheitliche Abstände */
-.section-gap {
-    height: var(--space-block);
-}
-
-/* Markt-Kacheln */
-.metric-card {
-    background: var(--bg-card-dark);
-    border-radius: 14px;
-    padding: 0.95rem 1rem;
-    color: white;
-    min-height: 90px;
-    box-shadow: 0 4px 14px rgba(5, 17, 40, 0.10);
-    margin-bottom: 0;
-}
-
-.metric-label {
-    color: #c3cede;
-    font-size: 0.78rem;
-    margin-bottom: 0.15rem;
-}
-
-.metric-value {
-    font-size: 1.08rem;
-    font-weight: 800;
-    color: white;
-}
-
-/* Setup-Karten */
-.setup-card {
-    background: var(--bg-card-dark);
+/* Dark cards used in scanner + hints */
+.ts-card-dark {
+    background: var(--card-dark-bg);
+    color: var(--card-dark-text);
     border-radius: var(--radius-card);
     padding: 1rem;
-    color: white;
-    min-height: 255px;
     box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
-    margin-bottom: 0;
 }
 
-.setup-symbol {
-    font-size: 1.5rem;
+.ts-metric-card {
+    min-height: 96px;
+}
+
+.ts-metric-label {
+    color: var(--card-dark-soft);
+    font-size: 0.8rem;
+    margin-bottom: 0.2rem;
+}
+
+.ts-metric-value {
+    font-size: 1.22rem;
     font-weight: 800;
-    color: white;
+}
+
+.ts-setup-card {
+    min-height: 250px;
+}
+
+.ts-setup-symbol {
+    font-size: 1.7rem;
+    font-weight: 800;
     line-height: 1.1;
     margin-bottom: 0.2rem;
 }
 
-.setup-line {
-    font-size: 0.87rem;
-    margin-bottom: 0.18rem;
+.ts-line {
+    font-size: 0.92rem;
+    line-height: 1.35;
+    margin-bottom: 0.12rem;
     color: #f3f6fb;
 }
 
-.dot-row {
+.ts-dot-row {
     display: flex;
     gap: 6px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
 }
 
-.dot-green, .dot-yellow, .dot-red {
+.ts-dot-green,
+.ts-dot-yellow,
+.ts-dot-red {
     width: 12px;
     height: 12px;
     border-radius: 50%;
     display: inline-block;
 }
 
-.dot-green { background: var(--green); }
-.dot-yellow { background: var(--yellow); }
-.dot-red { background: var(--red); }
+.ts-dot-green { background: #18c964; }
+.ts-dot-yellow { background: #f5c451; }
+.ts-dot-red { background: #ef5350; }
 
-.info-inline {
-    color: var(--text-soft);
-    font-size: 0.82rem;
-    margin-top: 0.3rem;
-    margin-bottom: 0;
+.ts-info-inline {
+    font-size: 0.9rem;
+    opacity: 0.78;
+    margin-top: 0.35rem;
 }
 
-/* Hinweise */
-.signal-chip {
-    display: inline-block;
-    border-radius: 999px;
-    padding: 0.2rem 0.55rem;
-    font-size: 0.74rem;
-    font-weight: 700;
-    color: white;
-    margin-bottom: 0.45rem;
-}
-
-.signal-green { background: #1f8f45; }
-.signal-yellow { background: #c58a00; }
-.signal-red { background: #c93636; }
-.signal-gray { background: #6b7280; }
-
-.hint-card {
-    background: var(--bg-card-dark);
-    border-radius: var(--radius-card);
-    padding: 0.95rem;
-    color: white;
-    min-height: 180px;
-    box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
-    margin-bottom: 0;
-}
-
-.hint-title {
-    font-size: 1.08rem;
-    font-weight: 800;
-    color: white;
-    margin-bottom: 0.25rem;
-}
-
-.hint-line {
-    font-size: 0.86rem;
-    color: #eef3fb;
-    margin-bottom: 0.18rem;
-}
-
-.small-muted-dark {
-    font-size: 0.8rem;
-    color: #d0d9e8;
-    margin-top: 0.25rem;
-}
-
-/* Helle Karten */
-.card-shell {
-    background: var(--bg-card-light);
-    border: 1px solid var(--border-soft);
+/* White management cards */
+.ts-shell {
+    border: 1px solid rgba(120, 130, 150, 0.18);
     border-radius: var(--radius-card);
     padding: 1rem;
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(2px);
 }
 
-.compact-note {
-    color: var(--text-soft);
-    font-size: 0.82rem;
+.ts-shell-note {
+    font-size: 0.88rem;
+    opacity: 0.78;
     margin-bottom: 0.7rem;
 }
 
-/* Portfolio Metriken */
-[data-testid="stMetric"] {
-    background: #ffffff;
-    border: 1px solid var(--border-soft);
-    border-radius: 14px;
-    padding: 0.8rem 0.95rem;
-    min-height: 88px;
+/* Hint cards */
+.ts-signal-chip {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 0.22rem 0.6rem;
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: white;
+    margin-bottom: 0.5rem;
 }
 
-/* Expander / Tabelle */
-div[data-testid="stExpander"] {
-    margin: 0 !important;
+.ts-signal-green { background: var(--signal-green); }
+.ts-signal-yellow { background: var(--signal-yellow); }
+.ts-signal-red { background: var(--signal-red); }
+.ts-signal-gray { background: #6b7280; }
+
+.ts-hint-card {
+    min-height: 180px;
 }
 
+.ts-hint-title {
+    font-size: 1.14rem;
+    font-weight: 800;
+    margin-bottom: 0.25rem;
+}
+
+.ts-hint-reason {
+    font-size: 0.84rem;
+    color: var(--card-dark-soft);
+    margin-top: 0.25rem;
+    line-height: 1.35;
+}
+
+/* Dataframe */
 [data-testid="stDataFrame"] {
-    border-radius: 12px;
+    border-radius: 14px;
     overflow: hidden;
 }
 
-/* Mobile */
+/* Mobile tuning */
 @media (max-width: 900px) {
     :root {
-        --space-block: 22px;
-    }
-
-    .app-title {
-        font-size: 1.85rem;
-    }
-
-    .app-subtitle {
-        font-size: 0.92rem;
-    }
-
-    .app-note {
-        font-size: 0.84rem;
-        line-height: 1.5;
-    }
-
-    .metric-card,
-    .setup-card,
-    .hint-card,
-    .card-shell {
-        padding: 0.9rem;
-    }
-
-    .setup-card,
-    .hint-card {
-        min-height: auto;
-    }
-
-    .setup-symbol {
-        font-size: 1.28rem;
-    }
-
-    .setup-line,
-    .hint-line {
-        font-size: 0.83rem;
-        line-height: 1.4;
+        --space-block: 20px;
+        --space-card: 12px;
     }
 
     .block-container {
-        padding-top: 0.75rem;
-        padding-left: 0.8rem;
-        padding-right: 0.8rem;
+        padding-top: 0.9rem;
+        padding-left: 0.9rem;
+        padding-right: 0.9rem;
     }
 
-    .metric-card,
-    .setup-card,
-    .hint-card,
-    [data-testid="stMetric"] {
-        margin-bottom: 14px !important;
+    .app-title {
+        font-size: 1.95rem;
+    }
+
+    .app-subtitle {
+        font-size: 0.98rem;
+        line-height: 1.4;
+    }
+
+    .app-note {
+        font-size: 0.92rem;
+        line-height: 1.55;
+    }
+
+    .ts-card-dark,
+    .ts-shell {
+        padding: 0.9rem;
+    }
+
+    .ts-setup-card,
+    .ts-hint-card,
+    .ts-metric-card {
+        min-height: auto;
+    }
+
+    .ts-setup-symbol {
+        font-size: 1.45rem;
+    }
+
+    .ts-line,
+    .ts-hint-reason {
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+
+    [data-testid="column"] .ts-card-dark,
+    [data-testid="column"] .ts-shell {
+        margin-bottom: 14px;
     }
 
     section[data-testid="stSidebar"] label,
@@ -366,8 +267,7 @@ div[data-testid="stExpander"] {
     section[data-testid="stSidebar"] .stCaption,
     section[data-testid="stSidebar"] span,
     section[data-testid="stSidebar"] div {
-        font-size: 0.88rem !important;
-        line-height: 1.35 !important;
+        font-size: 0.92rem !important;
     }
 }
 </style>
@@ -392,7 +292,7 @@ def get_dot_html(row: pd.Series) -> str:
     dots = []
 
     if bool(row.get("golden_cross", False)):
-        dots.append('<span class="dot-green"></span>')
+        dots.append('<span class="ts-dot-green"></span>')
 
     try:
         score = float(row.get("trade_score", 0))
@@ -400,21 +300,21 @@ def get_dot_html(row: pd.Series) -> str:
         score = 0.0
 
     if score >= 80:
-        dots.append('<span class="dot-green"></span>')
+        dots.append('<span class="ts-dot-green"></span>')
     elif score >= 65:
-        dots.append('<span class="dot-yellow"></span>')
+        dots.append('<span class="ts-dot-yellow"></span>')
     else:
-        dots.append('<span class="dot-red"></span>')
+        dots.append('<span class="ts-dot-red"></span>')
 
-    return f'<div class="dot-row">{"".join(dots)}</div>'
+    return f'<div class="ts-dot-row">{"".join(dots)}</div>'
 
 
 def render_metric(label: str, value: str) -> None:
     st.markdown(
         f"""
-<div class="metric-card">
-    <div class="metric-label">{label}</div>
-    <div class="metric-value">{value}</div>
+<div class="ts-card-dark ts-metric-card">
+    <div class="ts-metric-label">{label}</div>
+    <div class="ts-metric-value">{value}</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -438,17 +338,17 @@ def render_setup_card(row: pd.Series) -> None:
 
     st.markdown(
         f"""
-<div class="setup-card">
+<div class="ts-card-dark ts-setup-card">
     {get_dot_html(row)}
-    <div class="setup-symbol">{row.get("symbol", "-")}</div>
-    <div class="setup-line">{row.get("name", "-")}</div>
-    <div class="setup-line"><b>Signal:</b> {signal}</div>
-    <div class="setup-line"><b>Score:</b> {fmt_value(row.get("trade_score"), 0)}/100</div>
-    <div class="setup-line"><b>{price_label}:</b> {price_value}</div>
-    <div class="setup-line"><b>Ziel:</b> {fmt_value(row.get("target_price"))}</div>
-    <div class="setup-line"><b>Momentum:</b> {fmt_value(row.get("momentum"), 2, "%")}</div>
-    <div class="setup-line"><b>Stop:</b> {fmt_value(row.get("stop_loss"))}</div>
-    <div class="setup-line"><b>Quelle:</b> {source_text}</div>
+    <div class="ts-setup-symbol">{row.get("symbol", "-")}</div>
+    <div class="ts-line">{row.get("name", "-")}</div>
+    <div class="ts-line"><b>Signal:</b> {signal}</div>
+    <div class="ts-line"><b>Score:</b> {fmt_value(row.get("trade_score"), 0)}/100</div>
+    <div class="ts-line"><b>{price_label}:</b> {price_value}</div>
+    <div class="ts-line"><b>Ziel:</b> {fmt_value(row.get("target_price"))}</div>
+    <div class="ts-line"><b>Momentum:</b> {fmt_value(row.get("momentum"), 2, "%")}</div>
+    <div class="ts-line"><b>Stop:</b> {fmt_value(row.get("stop_loss"))}</div>
+    <div class="ts-line"><b>Quelle:</b> {source_text}</div>
 </div>
 """,
         unsafe_allow_html=True,
@@ -460,7 +360,6 @@ def get_valid_rows(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
 
     result = df.copy()
-
     if "status" in result.columns:
         result = result[result["status"] == "ok"]
 
@@ -482,7 +381,6 @@ def derive_breadth_from_scan(df: pd.DataFrame) -> dict:
         return {"count": 0, "pct_above_sma50": 0.0, "pct_golden_cross": 0.0}
 
     temp = df.copy()
-
     if "analysis_price" not in temp.columns or "sma50" not in temp.columns:
         return {"count": len(temp), "pct_above_sma50": 0.0, "pct_golden_cross": 0.0}
 
@@ -617,21 +515,21 @@ def render_portfolio_signal_cards(portfolio_df: pd.DataFrame) -> None:
 
     for idx, (_, row) in enumerate(top_alerts.iterrows()):
         css_class = {
-            "Rot": "signal-red",
-            "Gelb": "signal-yellow",
-            "Grün": "signal-green",
-        }.get(str(row.get("signal_color", "Grau")), "signal-gray")
+            "Rot": "ts-signal-red",
+            "Gelb": "ts-signal-yellow",
+            "Grün": "ts-signal-green",
+        }.get(str(row.get("signal_color", "Grau")), "ts-signal-gray")
 
         with cols[idx]:
             st.markdown(
                 f"""
-<div class="hint-card">
-    <span class="signal-chip {css_class}">{row.get("exit_signal", "-")}</span>
-    <div class="hint-title">{row.get("symbol", "-")}</div>
-    <div class="hint-line"><b>Kurs:</b> {fmt_value(row.get("market_price"))}</div>
-    <div class="hint-line"><b>PnL:</b> {fmt_value(row.get("pnl_pct"), 2, "%")}</div>
-    <div class="hint-line"><b>Trailing:</b> {fmt_value(row.get("trailing_stop"))}</div>
-    <div class="small-muted-dark">{row.get("signal_reason", "-")}</div>
+<div class="ts-card-dark ts-hint-card">
+    <span class="ts-signal-chip {css_class}">{row.get("exit_signal", "-")}</span>
+    <div class="ts-hint-title">{row.get("symbol", "-")}</div>
+    <div class="ts-line"><b>Kurs:</b> {fmt_value(row.get("market_price"))}</div>
+    <div class="ts-line"><b>PnL:</b> {fmt_value(row.get("pnl_pct"), 2, "%")}</div>
+    <div class="ts-line"><b>Trailing:</b> {fmt_value(row.get("trailing_stop"))}</div>
+    <div class="ts-hint-reason">{row.get("signal_reason", "-")}</div>
 </div>
 """,
                 unsafe_allow_html=True,
@@ -725,9 +623,9 @@ def save_edited_position() -> None:
 
 
 def render_add_position_section() -> None:
-    st.markdown('<div class="card-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="ts-shell">', unsafe_allow_html=True)
     st.subheader("Neue Position")
-    st.markdown('<div class="compact-note">Neue Käufe erfassen und direkt überwachen.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ts-shell-note">Neue Käufe erfassen und direkt überwachen.</div>', unsafe_allow_html=True)
 
     with st.form("portfolio_add_form", clear_on_submit=True):
         c1, c2, c3, c4 = st.columns(4)
@@ -797,9 +695,12 @@ def render_single_position_chart(raw_row: pd.Series, analyzed_row: pd.Series | N
 
 
 def render_manage_existing_position(raw_portfolio_df: pd.DataFrame, portfolio_df: pd.DataFrame) -> None:
-    st.markdown('<div class="card-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="ts-shell">', unsafe_allow_html=True)
     st.subheader("Bestehende Position verwalten")
-    st.markdown('<div class="compact-note">Eine Position auswählen und direkt bearbeiten, Stop speichern, löschen oder den Chart ansehen.</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="ts-shell-note">Eine Position auswählen und direkt bearbeiten, Stop speichern, löschen oder den Chart ansehen.</div>',
+        unsafe_allow_html=True,
+    )
 
     if raw_portfolio_df is None or raw_portfolio_df.empty:
         st.info("Keine Positionen vorhanden.")
@@ -981,10 +882,17 @@ portfolio_user_key = ensure_portfolio_user_state()
 
 st.markdown('<div class="app-title">Trading Scanner 4.2</div>', unsafe_allow_html=True)
 st.markdown(f'<div class="app-subtitle">{APP_SUBTITLE}</div>', unsafe_allow_html=True)
-st.markdown('<div class="app-note">Historie wird schnell gescannt, Live-Kurse werden nur gezielt nachgeladen.</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="app-note">Historie wird schnell gescannt, Live-Kurse werden nur gezielt nachgeladen.</div>',
+    unsafe_allow_html=True,
+)
 
 try:
-    symbols = load_universe(universe_name, include_europe_listings=include_europe_listings, include_commodities_in_all=False)
+    symbols = load_universe(
+        universe_name,
+        include_europe_listings=include_europe_listings,
+        include_commodities_in_all=False,
+    )
 
     with st.spinner("Scanner lädt Marktdaten..."):
         scan_df, rohstoffe_df, market = load_core_data(tuple(symbols))
@@ -1018,7 +926,7 @@ try:
         render_metric("Aktivsignal", action_signal)
 
     st.markdown(
-        f'<div class="info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>',
+        f'<div class="ts-info-inline">Geladene Aktien im Scanner: {len(valid_scan_df)} | Rohstoffe: {len(valid_rohstoffe_df)}</div>',
         unsafe_allow_html=True,
     )
 
@@ -1080,11 +988,8 @@ try:
             )
 
         st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
-
         render_add_position_section()
-
         st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
-
         render_manage_existing_position(raw_portfolio_df, portfolio_df)
 
 except Exception as e:
