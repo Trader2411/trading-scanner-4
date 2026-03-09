@@ -41,7 +41,6 @@ st.markdown(
     --signal-red: #c93636;
 }
 
-/* Global rhythm */
 .block-container {
     padding-top: 1rem;
     padding-bottom: 2rem;
@@ -51,7 +50,6 @@ st.markdown(
     height: var(--space-block);
 }
 
-/* App header */
 .app-title {
     font-size: clamp(2rem, 4vw, 3rem);
     font-weight: 800;
@@ -88,13 +86,14 @@ section[data-testid="stSidebar"] .stTextInput {
     margin-bottom: 0.45rem !important;
 }
 
-/* Dark cards used in scanner + hints */
+/* Cards */
 .ts-card-dark {
     background: var(--card-dark-bg);
     color: var(--card-dark-text);
     border-radius: var(--radius-card);
     padding: 1rem;
     box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
+    margin-bottom: var(--space-card);
 }
 
 .ts-metric-card {
@@ -155,7 +154,7 @@ section[data-testid="stSidebar"] .stTextInput {
     margin-top: 0.35rem;
 }
 
-/* White management cards */
+/* White shells */
 .ts-shell {
     border: 1px solid rgba(120, 130, 150, 0.18);
     border-radius: var(--radius-card);
@@ -170,7 +169,7 @@ section[data-testid="stSidebar"] .stTextInput {
     margin-bottom: 0.7rem;
 }
 
-/* Hint cards */
+/* Signal hints */
 .ts-signal-chip {
     display: inline-block;
     border-radius: 999px;
@@ -203,17 +202,22 @@ section[data-testid="stSidebar"] .stTextInput {
     line-height: 1.35;
 }
 
-/* Dataframe */
+/* dataframe */
 [data-testid="stDataFrame"] {
     border-radius: 14px;
     overflow: hidden;
 }
 
-/* Mobile tuning */
+/* Streamlit metrics */
+[data-testid="stMetric"] {
+    margin-bottom: var(--space-card);
+}
+
+/* Mobile */
 @media (max-width: 900px) {
     :root {
         --space-block: 20px;
-        --space-card: 12px;
+        --space-card: 16px;
     }
 
     .block-container {
@@ -241,10 +245,11 @@ section[data-testid="stSidebar"] .stTextInput {
         padding: 0.9rem;
     }
 
+    .ts-metric-card,
     .ts-setup-card,
-    .ts-hint-card,
-    .ts-metric-card {
+    .ts-hint-card {
         min-height: auto;
+        margin-bottom: var(--space-card);
     }
 
     .ts-setup-symbol {
@@ -255,11 +260,6 @@ section[data-testid="stSidebar"] .stTextInput {
     .ts-hint-reason {
         font-size: 0.9rem;
         line-height: 1.45;
-    }
-
-    [data-testid="column"] .ts-card-dark,
-    [data-testid="column"] .ts-shell {
-        margin-bottom: 14px;
     }
 
     section[data-testid="stSidebar"] label,

@@ -22,6 +22,7 @@ st.markdown(
 <style>
 :root {
     --space-block: 24px;
+    --space-card: 14px;
     --radius-card: 18px;
     --card-dark-bg: linear-gradient(180deg, #071225 0%, #0b1730 100%);
     --card-dark-text: #ffffff;
@@ -57,7 +58,6 @@ st.markdown(
     max-width: 900px;
 }
 
-/* Sidebar readability */
 section[data-testid="stSidebar"] label,
 section[data-testid="stSidebar"] .stMarkdown p,
 section[data-testid="stSidebar"] .stCaption,
@@ -78,6 +78,7 @@ section[data-testid="stSidebar"] .stSlider {
     border-radius: var(--radius-card);
     padding: 1rem;
     box-shadow: 0 6px 18px rgba(7, 18, 37, 0.14);
+    margin-bottom: var(--space-card);
 }
 
 .ts-metric-card {
@@ -146,6 +147,7 @@ section[data-testid="stSidebar"] .stSlider {
 @media (max-width: 900px) {
     :root {
         --space-block: 20px;
+        --space-card: 16px;
     }
 
     .block-container {
@@ -175,6 +177,7 @@ section[data-testid="stSidebar"] .stSlider {
     .ts-metric-card,
     .ts-setup-card {
         min-height: auto;
+        margin-bottom: var(--space-card);
     }
 
     .ts-setup-symbol {
@@ -184,10 +187,6 @@ section[data-testid="stSidebar"] .stSlider {
     .ts-line {
         font-size: 0.9rem;
         line-height: 1.45;
-    }
-
-    [data-testid="column"] .ts-card-dark {
-        margin-bottom: 14px;
     }
 
     section[data-testid="stSidebar"] label,
