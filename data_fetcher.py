@@ -1,32 +1,43 @@
 from __future__ import annotations
 
-from typing import Dict, Optional, List
 import time
+from typing import Dict, List, Optional
 
 import pandas as pd
 import streamlit as st
 import yfinance as yf
 
 try:
-    from config import HIST_CACHE_TTL
+    from config import CACHE_LIVE_PRICES, LIVE_PRICE_TIMEOUT
 except Exception:
-    try:
-        from config import CACHE_MARKET_DATA as HIST_CACHE_TTL
-    except Exception:
-        HIST_CACHE_TTL = 1800
+    CACHE_LIVE_PRICES = 120
+    LIVE_PRICE_TIMEOUT = 10
 
-try:
-    from config import LIVE_CACHE_TTL
-except Exception:
-    try:
-        from config import CACHE_LIVE_PRICES as LIVE_CACHE_TTL
-    except Exception:
-        LIVE_CACHE_TTL = 30
+
+# ============================================================
+# Cache / Timeouts
+# ============================================================
+
+HIST_CACHE_TTL = 3600
+LIVE_CACHE_TTL = int(CACHE_LIVE_PRICES) if CACHE_LIVE_PRICES else 120
 
 
 # ============================================================
 # Interne Hilfsfunktionen
 # ============================================================
+
+def _safe_float(value) -> Optional[float]:
+    try:
+        if value is None or value == "" or pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _retry_sleep(attempt: int) -> None:
+    time.sleep(0.25 * max(1, attempt))
+
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -35,40 +46,33 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
 
     if isinstance(result.columns, pd.MultiIndex):
-        result.columns = [col[0] if isinstance(col, tuple) else col for col in result.columns]
+        cleaned_cols = []
+        for col in result.columns:
+            if isinstance(col, tuple):
+                cleaned_cols.append(col[0])
+            else:
+                cleaned_cols.append(col)
+        result.columns = cleaned_cols
 
     rename_map = {}
     for col in result.columns:
-        lc = str(col).lower()
-        if lc == "adj close":
-            rename_map[col] = "Adj Close"
-        elif lc == "open":
+        col_l = str(col).strip().lower()
+        if col_l == "open":
             rename_map[col] = "Open"
-        elif lc == "high":
+        elif col_l == "high":
             rename_map[col] = "High"
-        elif lc == "low":
+        elif col_l == "low":
             rename_map[col] = "Low"
-        elif lc == "close":
+        elif col_l == "close":
             rename_map[col] = "Close"
-        elif lc == "volume":
+        elif col_l == "adj close":
+            rename_map[col] = "Adj Close"
+        elif col_l == "volume":
             rename_map[col] = "Volume"
 
     result = result.rename(columns=rename_map)
     result = result.sort_index()
     return result
-
-
-def _safe_float(value) -> Optional[float]:
-    try:
-        if value is None or pd.isna(value) or value == "":
-            return None
-        return float(value)
-    except Exception:
-        return None
-
-
-def _retry_sleep(attempt: int) -> None:
-    time.sleep(0.25 * attempt)
 
 
 def _extract_close_series(df: pd.DataFrame) -> pd.Series:
@@ -101,6 +105,36 @@ def _extract_low_series(df: pd.DataFrame) -> pd.Series:
     return low
 
 
+def _extract_high_series(df: pd.DataFrame) -> pd.Series:
+    if df is None or df.empty or "High" not in df.columns:
+        return pd.Series(dtype=float)
+
+    high = df["High"]
+
+    if isinstance(high, pd.DataFrame):
+        if high.empty:
+            return pd.Series(dtype=float)
+        high = high.iloc[:, 0]
+
+    high = pd.to_numeric(high, errors="coerce").dropna()
+    return high
+
+
+def _extract_open_series(df: pd.DataFrame) -> pd.Series:
+    if df is None or df.empty or "Open" not in df.columns:
+        return pd.Series(dtype=float)
+
+    open_ = df["Open"]
+
+    if isinstance(open_, pd.DataFrame):
+        if open_.empty:
+            return pd.Series(dtype=float)
+        open_ = open_.iloc[:, 0]
+
+    open_ = pd.to_numeric(open_, errors="coerce").dropna()
+    return open_
+
+
 # ============================================================
 # Historische Daten
 # ============================================================
@@ -114,6 +148,9 @@ def get_historical_data(
     """
     Lädt historische Kursdaten robust über yfinance.
     """
+    if not symbol:
+        return pd.DataFrame()
+
     for attempt in range(1, 4):
         try:
             df = yf.download(
@@ -123,301 +160,177 @@ def get_historical_data(
                 auto_adjust=False,
                 progress=False,
                 threads=False,
-                group_by="column",
+                timeout=LIVE_PRICE_TIMEOUT,
             )
 
             df = _normalize_columns(df)
 
+            if df is None or df.empty:
+                _retry_sleep(attempt)
+                continue
+
             required = {"Open", "High", "Low", "Close", "Volume"}
-            if df.empty or not required.issubset(set(df.columns)):
-                if attempt < 3:
-                    _retry_sleep(attempt)
-                    continue
-                return pd.DataFrame()
+            if not required.issubset(set(df.columns)):
+                _retry_sleep(attempt)
+                continue
 
-            close = _extract_close_series(df)
-            if close.empty:
-                if attempt < 3:
-                    _retry_sleep(attempt)
-                    continue
-                return pd.DataFrame()
+            df = df.dropna(subset=["Close"]).copy()
+            if df.empty:
+                _retry_sleep(attempt)
+                continue
 
-            df = df.loc[close.index].copy()
             return df
 
         except Exception:
-            if attempt < 3:
-                _retry_sleep(attempt)
+            _retry_sleep(attempt)
 
     return pd.DataFrame()
 
 
-def batch_get_historical(
-    symbols: List[str],
-    period: str = "1y",
-    interval: str = "1d",
-) -> Dict[str, pd.DataFrame]:
-    """
-    Komfortfunktion für mehrere Symbole.
-    """
-    if not symbols:
-        return {}
-
-    return {
-        symbol: get_historical_data(symbol, period=period, interval=interval)
-        for symbol in symbols
-    }
-
-
 # ============================================================
-# Live-Preis-Logik
+# Live / Market Price
 # ============================================================
-
-def _extract_from_fast_info(fast_info) -> Dict:
-    if not fast_info:
-        return {}
-
-    keys = [
-        "lastPrice",
-        "regularMarketPrice",
-        "last_price",
-        "previousClose",
-        "previous_close",
-    ]
-
-    for key in keys:
-        try:
-            value = _safe_float(fast_info.get(key))
-            if value is not None and value > 0:
-                return {
-                    "market_price": value,
-                    "market_price_source": f"fast_info.{key}",
-                    "market_price_available": True,
-                }
-        except Exception:
-            continue
-
-    return {}
-
-
-def _extract_from_info(info: Dict) -> Dict:
-    if not info:
-        return {}
-
-    keys = [
-        "regularMarketPrice",
-        "currentPrice",
-        "navPrice",
-        "bid",
-        "ask",
-        "previousClose",
-    ]
-
-    for key in keys:
-        try:
-            value = _safe_float(info.get(key))
-            if value is not None and value > 0:
-                return {
-                    "market_price": value,
-                    "market_price_source": f"info.{key}",
-                    "market_price_available": True,
-                }
-        except Exception:
-            continue
-
-    return {}
-
-
-def _extract_from_history(ticker: yf.Ticker) -> Dict:
-    attempts = [
-        {"period": "1d", "interval": "1m", "source": "history.1d.1m.Close"},
-        {"period": "5d", "interval": "15m", "source": "history.5d.15m.Close"},
-        {"period": "1mo", "interval": "1d", "source": "history.1mo.1d.Close"},
-    ]
-
-    for cfg in attempts:
-        try:
-            hist = ticker.history(
-                period=cfg["period"],
-                interval=cfg["interval"],
-                auto_adjust=False,
-            )
-            hist = _normalize_columns(hist)
-
-            close = _extract_close_series(hist)
-            if close.empty:
-                continue
-
-            value = _safe_float(close.iloc[-1])
-            if value is not None and value > 0:
-                return {
-                    "market_price": value,
-                    "market_price_source": cfg["source"],
-                    "market_price_available": True,
-                }
-        except Exception:
-            continue
-
-    return {}
-
 
 @st.cache_data(ttl=LIVE_CACHE_TTL, show_spinner=False)
+def get_price_snapshot(symbols: List[str]) -> Dict[str, Optional[float]]:
+    """
+    Liefert ein simples Mapping: Symbol -> letzter Preis
+    """
+    result: Dict[str, Optional[float]] = {}
+
+    if not symbols:
+        return result
+
+    clean_symbols = []
+    seen = set()
+    for symbol in symbols:
+        if symbol is None:
+            continue
+        text = str(symbol).strip().upper()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        clean_symbols.append(text)
+
+    if not clean_symbols:
+        return result
+
+    for symbol in clean_symbols:
+        result[symbol] = None
+
+    try:
+        tickers = yf.Tickers(" ".join(clean_symbols))
+
+        for symbol in clean_symbols:
+            try:
+                ticker = tickers.tickers.get(symbol)
+                if ticker is None:
+                    continue
+
+                fast_info = getattr(ticker, "fast_info", {}) or {}
+
+                price = (
+                    fast_info.get("lastPrice")
+                    or fast_info.get("last_price")
+                    or fast_info.get("regularMarketPrice")
+                )
+
+                result[symbol] = _safe_float(price)
+            except Exception:
+                result[symbol] = None
+
+        return result
+
+    except Exception:
+        return result
+
+
 def get_live_price_payload(symbol: str) -> Dict:
     """
-    Liefert bevorzugt einen aktuellen Marktpreis.
+    Einzelner Live-Preis mit Quelle.
     """
-    for attempt in range(1, 3):
-        try:
-            ticker = yf.Ticker(symbol)
+    if not symbol:
+        return {
+            "symbol": symbol,
+            "market_price": None,
+            "market_price_source": None,
+        }
 
-            try:
-                fast_info = getattr(ticker, "fast_info", None)
-                payload = _extract_from_fast_info(fast_info)
-                if payload:
-                    return payload
-            except Exception:
-                pass
-
-            try:
-                info = getattr(ticker, "info", None)
-                payload = _extract_from_info(info or {})
-                if payload:
-                    return payload
-            except Exception:
-                pass
-
-            payload = _extract_from_history(ticker)
-            if payload:
-                return payload
-
-        except Exception:
-            if attempt < 2:
-                _retry_sleep(attempt)
+    snapshot = get_price_snapshot([symbol])
+    price = _safe_float(snapshot.get(str(symbol).strip().upper()))
 
     return {
-        "market_price": None,
-        "market_price_source": None,
-        "market_price_available": False,
+        "symbol": str(symbol).strip().upper(),
+        "market_price": price,
+        "market_price_source": "live" if price is not None else None,
     }
 
 
-# ============================================================
-# Preis-Snapshots
-# ============================================================
+def get_market_price(symbol: str, hist: Optional[pd.DataFrame] = None) -> Dict:
+    """
+    Versucht zuerst Live-Preis, fällt sonst auf letzten historischen Schlusskurs zurück.
+    """
+    payload = get_live_price_payload(symbol)
+    market_price = _safe_float(payload.get("market_price"))
 
-def get_analysis_price(hist: pd.DataFrame) -> Optional[float]:
+    if market_price is not None:
+        return payload
+
+    if hist is None or hist.empty:
+        hist = get_historical_data(symbol, period="1y", interval="1d")
+
     close = _extract_close_series(hist)
-    if close.empty:
-        return None
-    return _safe_float(close.iloc[-1])
-
-
-def get_price_snapshot(
-    symbol: str,
-    hist: pd.DataFrame,
-    fetch_live_price: bool = True,
-) -> Dict:
-    """
-    Liefert Analysepreis, Marktpreis und Preisabweichung.
-    """
-    analysis_price = get_analysis_price(hist)
-
-    market_price = None
-    market_price_source = None
-    market_price_available = False
-
-    if fetch_live_price:
-        live_payload = get_live_price_payload(symbol)
-        market_price = _safe_float(live_payload.get("market_price"))
-        market_price_source = live_payload.get("market_price_source")
-        market_price_available = bool(live_payload.get("market_price_available", False))
-
-    price_gap_pct = None
-    if analysis_price not in [None, 0] and market_price not in [None, 0]:
-        try:
-            price_gap_pct = ((float(market_price) / float(analysis_price)) - 1.0) * 100.0
-        except Exception:
-            price_gap_pct = None
+    fallback_price = _safe_float(close.iloc[-1]) if not close.empty else None
 
     return {
-        "symbol": symbol,
-        "analysis_price": round(analysis_price, 2) if analysis_price is not None else None,
-        "market_price": round(market_price, 2) if market_price is not None else None,
-        "price_gap_pct": round(price_gap_pct, 2) if price_gap_pct is not None else None,
-        "market_price_source": market_price_source,
-        "market_price_available": market_price_available,
+        "symbol": str(symbol).strip().upper(),
+        "market_price": fallback_price,
+        "market_price_source": "history" if fallback_price is not None else None,
     }
 
 
 # ============================================================
-# Komfortfunktionen für DataFrames
+# DataFrame anreichern
 # ============================================================
 
 def enrich_with_live_prices(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty or "symbol" not in df.columns:
+    """
+    Ergänzt market_price, market_price_source und price_gap_pct.
+    """
+    if df is None or df.empty:
         return df
 
     result = df.copy()
 
-    market_prices: List[Optional[float]] = []
-    price_gaps: List[Optional[float]] = []
-    sources: List[Optional[str]] = []
-    available_flags: List[bool] = []
+    if "symbol" not in result.columns:
+        return result
 
-    for _, row in result.iterrows():
-        symbol = row.get("symbol")
-        analysis_price = _safe_float(row.get("analysis_price"))
+    symbols = [
+        str(symbol).strip().upper()
+        for symbol in result["symbol"].dropna().tolist()
+        if str(symbol).strip()
+    ]
 
-        live = get_live_price_payload(symbol)
-        market_price = _safe_float(live.get("market_price"))
+    live_prices = get_price_snapshot(symbols)
 
-        gap = None
-        if analysis_price not in [None, 0] and market_price not in [None, 0]:
-            try:
-                gap = ((market_price / analysis_price) - 1.0) * 100.0
-            except Exception:
-                gap = None
+    result["market_price"] = result["symbol"].astype(str).str.upper().map(live_prices)
+    result["market_price_source"] = result["market_price"].apply(
+        lambda x: "live" if _safe_float(x) is not None else None
+    )
 
-        market_prices.append(round(market_price, 2) if market_price is not None else None)
-        price_gaps.append(round(gap, 2) if gap is not None else None)
-        sources.append(live.get("market_price_source"))
-        available_flags.append(bool(live.get("market_price_available", False)))
+    if "analysis_price" in result.columns:
+        analysis = pd.to_numeric(result["analysis_price"], errors="coerce")
+        market = pd.to_numeric(result["market_price"], errors="coerce")
 
-    result["market_price"] = market_prices
-    result["price_gap_pct"] = price_gaps
-    result["market_price_source"] = sources
-    result["market_price_available"] = available_flags
+        result["price_gap_pct"] = None
+        valid_mask = analysis.notna() & market.notna() & (analysis != 0)
+        result.loc[valid_mask, "price_gap_pct"] = (
+            ((market[valid_mask] / analysis[valid_mask]) - 1.0) * 100.0
+        ).round(2)
+
+    # Fallback auf history, wenn analysis_price vorhanden aber live fehlt
+    if "analysis_price" in result.columns:
+        no_live_mask = result["market_price"].isna()
+        result.loc[no_live_mask, "market_price_source"] = result.loc[no_live_mask, "market_price_source"].fillna("history")
 
     return result
-
-
-def enrich_top_rows_with_live_prices(df: pd.DataFrame, top_n: int = 3) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    result = df.head(top_n).copy()
-    return enrich_with_live_prices(result)
-
-
-# ============================================================
-# Zusatzfunktionen für Portfolio / Analyse
-# ============================================================
-
-def get_latest_close_from_history(symbol: str, period: str = "1y", interval: str = "1d") -> Optional[float]:
-    hist = get_historical_data(symbol, period=period, interval=interval)
-    close = _extract_close_series(hist)
-
-    if close.empty:
-        return None
-
-    return _safe_float(close.iloc[-1])
-
-
-def get_latest_low_from_history(symbol: str, period: str = "1y", interval: str = "1d") -> Optional[float]:
-    hist = get_historical_data(symbol, period=period, interval=interval)
-    low = _extract_low_series(hist)
-
-    if low.empty:
-        return None
-
-    return _safe_float(low.iloc[-1])

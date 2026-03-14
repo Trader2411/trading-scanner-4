@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import math
+from datetime import datetime, timezone
+
+import matplotlib.pyplot as plt
+from matplotlib.patches import Wedge, Circle
 import pandas as pd
+import requests
 import streamlit as st
 
 from config import APP_SUBTITLE
@@ -139,6 +145,25 @@ section[data-testid="stSidebar"] .stSlider {
     margin-top: 0.35rem;
 }
 
+.ts-fg-shell {
+    border: 1px solid rgba(120, 130, 150, 0.18);
+    border-radius: var(--radius-card);
+    padding: 1rem;
+    background: rgba(255,255,255,0.03);
+}
+
+.ts-fg-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    margin-bottom: 0.25rem;
+}
+
+.ts-fg-sub {
+    font-size: 0.88rem;
+    opacity: 0.78;
+    margin-bottom: 0.85rem;
+}
+
 [data-testid="stDataFrame"] {
     border-radius: 14px;
     overflow: hidden;
@@ -170,7 +195,8 @@ section[data-testid="stSidebar"] .stSlider {
         line-height: 1.55;
     }
 
-    .ts-card-dark {
+    .ts-card-dark,
+    .ts-fg-shell {
         padding: 0.9rem;
     }
 
@@ -322,6 +348,211 @@ def derive_breadth_from_scan(df: pd.DataFrame) -> dict:
     }
 
 
+def _fg_label_from_value(value: float | int | None) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    value = float(value)
+    if value < 25:
+        return "Extreme Fear"
+    if value < 45:
+        return "Fear"
+    if value < 55:
+        return "Neutral"
+    if value < 75:
+        return "Greed"
+    return "Extreme Greed"
+
+
+def _fg_color(value: float | int | None) -> str:
+    if value is None or pd.isna(value):
+        return "#9ca3af"
+    value = float(value)
+    if value < 25:
+        return "#d64545"
+    if value < 45:
+        return "#f08a24"
+    if value < 55:
+        return "#9ca3af"
+    if value < 75:
+        return "#84cc16"
+    return "#22c55e"
+
+
+def _fg_value_text(entry) -> str:
+    if isinstance(entry, dict):
+        v = entry.get("score", entry.get("value"))
+        t = entry.get("rating", entry.get("valueText"))
+        if v is None:
+            return "-"
+        if t:
+            return f"{int(round(float(v)))} · {t}"
+        return str(int(round(float(v))))
+    if entry is None or pd.isna(entry):
+        return "-"
+    return str(entry)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def load_fear_greed_data() -> dict:
+    url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json,text/plain,*/*",
+        "Referer": "https://money.cnn.com/data/fear-and-greed/",
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=12)
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        return {
+            "ok": False,
+            "value": None,
+            "rating": None,
+            "previous_close": None,
+            "previous_1_week": None,
+            "previous_1_month": None,
+            "previous_1_year": None,
+            "timestamp": None,
+        }
+
+    current = data.get("fear_and_greed", {}) or {}
+
+    def _extract_item(item):
+        if isinstance(item, dict):
+            return {
+                "score": item.get("score", item.get("value")),
+                "rating": item.get("rating", item.get("valueText")),
+            }
+        if item is None:
+            return None
+        return {"score": item, "rating": None}
+
+    timestamp = current.get("timestamp")
+    timestamp_text = None
+    if timestamp:
+        try:
+            timestamp_text = datetime.fromtimestamp(
+                float(timestamp) / 1000.0,
+                tz=timezone.utc,
+            ).strftime("%d.%m.%Y %H:%M UTC")
+        except Exception:
+            timestamp_text = None
+
+    value = current.get("score", current.get("value"))
+    rating = current.get("rating", current.get("valueText"))
+    if value is not None and not rating:
+        rating = _fg_label_from_value(value)
+
+    return {
+        "ok": True,
+        "value": value,
+        "rating": rating,
+        "previous_close": _extract_item(current.get("previous_close")),
+        "previous_1_week": _extract_item(current.get("previous_1_week")),
+        "previous_1_month": _extract_item(current.get("previous_1_month")),
+        "previous_1_year": _extract_item(current.get("previous_1_year")),
+        "timestamp": timestamp_text,
+    }
+
+
+def build_fear_greed_gauge(value: float | int | None):
+    fig, ax = plt.subplots(figsize=(7.5, 4.5))
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    center = (0, 0)
+    outer_r = 1.0
+    width = 0.38
+
+    segments = [
+        (180, 144, "#d64545", "EXTREME\nFEAR"),
+        (144, 108, "#f08a24", "FEAR"),
+        (108, 72, "#9ca3af", "NEUTRAL"),
+        (72, 36, "#84cc16", "GREED"),
+        (36, 0, "#22c55e", "EXTREME\nGREED"),
+    ]
+
+    for theta1, theta2, color, label in segments:
+        wedge = Wedge(center, outer_r, theta2, theta1, width=width, facecolor=color, edgecolor="white", lw=2)
+        ax.add_patch(wedge)
+
+        angle = math.radians((theta1 + theta2) / 2.0)
+        r_text = outer_r - width / 2
+        x = r_text * math.cos(angle)
+        y = r_text * math.sin(angle)
+        ax.text(
+            x,
+            y,
+            label,
+            ha="center",
+            va="center",
+            fontsize=10,
+            fontweight="bold",
+            rotation=((theta1 + theta2) / 2.0) - 90,
+            rotation_mode="anchor",
+        )
+
+    for v in [0, 25, 50, 75, 100]:
+        angle = math.radians(180 - (v / 100) * 180)
+        r = outer_r - width - 0.05
+        x = r * math.cos(angle)
+        y = r * math.sin(angle)
+        ax.text(x, y, str(v), ha="center", va="center", fontsize=9, color="#6b7280")
+
+    if value is not None and not pd.isna(value):
+        value = max(0, min(100, float(value)))
+        angle = math.radians(180 - (value / 100) * 180)
+        needle_r = outer_r - 0.08
+        x = needle_r * math.cos(angle)
+        y = needle_r * math.sin(angle)
+        ax.plot([0, x], [0, y], lw=4, color="#1f2937", solid_capstyle="round")
+        ax.add_patch(Circle((0, 0), 0.08, color="#1f2937"))
+        ax.add_patch(Circle((0, 0), 0.18, color="white", zorder=3))
+        ax.text(0, 0.05, f"{int(round(value))}", ha="center", va="center", fontsize=20, fontweight="bold")
+        ax.text(0, -0.12, _fg_label_from_value(value), ha="center", va="center", fontsize=10, color=_fg_color(value), fontweight="bold")
+    else:
+        ax.add_patch(Circle((0, 0), 0.18, color="white", zorder=3))
+        ax.text(0, 0.0, "-", ha="center", va="center", fontsize=20, fontweight="bold")
+
+    ax.set_xlim(-1.1, 1.1)
+    ax.set_ylim(-0.2, 1.1)
+    fig.tight_layout()
+    return fig
+
+
+def render_fear_greed_section(fg: dict) -> None:
+    st.markdown('<div class="ts-fg-shell">', unsafe_allow_html=True)
+    st.markdown('<div class="ts-fg-title">Fear & Greed Index</div>', unsafe_allow_html=True)
+
+    ts = fg.get("timestamp")
+    if ts:
+        st.markdown(f'<div class="ts-fg-sub">Letztes Update: {ts}</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="ts-fg-sub">Sentiment-Indikator für den US-Aktienmarkt.</div>', unsafe_allow_html=True)
+
+    if not fg.get("ok") or fg.get("value") is None:
+        st.warning("Fear & Greed Index konnte aktuell nicht geladen werden.")
+        st.markdown('</div>', unsafe_allow_html=True)
+        return
+
+    left, right = st.columns([1.8, 1.0])
+
+    with left:
+        fig = build_fear_greed_gauge(fg.get("value"))
+        st.pyplot(fig, use_container_width=True)
+
+    with right:
+        st.metric("Aktuell", _fg_value_text({"score": fg.get("value"), "rating": fg.get("rating")}))
+        st.metric("Previous Close", _fg_value_text(fg.get("previous_close")))
+        st.metric("1 Woche", _fg_value_text(fg.get("previous_1_week")))
+        st.metric("1 Monat", _fg_value_text(fg.get("previous_1_month")))
+        st.metric("1 Jahr", _fg_value_text(fg.get("previous_1_year")))
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def load_core_data(symbols_key: tuple[str, ...]) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     symbols = list(symbols_key)
@@ -384,6 +615,7 @@ try:
 
     with st.spinner("Scanner lädt Marktdaten..."):
         scan_df, rohstoffe_df, market = load_core_data(tuple(symbols))
+        fg_data = load_fear_greed_data()
         valid_scan_df = get_valid_rows(scan_df)
         valid_rohstoffe_df = get_valid_rows(rohstoffe_df)
         breadth = derive_breadth_from_scan(valid_scan_df)
@@ -399,6 +631,9 @@ try:
     risk_level = derive_risk_level(breadth)
     top_sector = get_top_sector_label(valid_scan_df)
     action_signal = derive_action_signal(market_status, breadth)
+
+    render_fear_greed_section(fg_data)
+    st.markdown('<div class="section-gap"></div>', unsafe_allow_html=True)
 
     st.header("Marktübersicht")
     c1, c2, c3, c4 = st.columns(4)
