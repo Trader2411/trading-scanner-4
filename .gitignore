@@ -2,4 +2,16 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+data/cache/
+cache/
+exports/
+
+.streamlit/secrets.toml
+
 .env
+.venv/
+venv/
+
+.DS_Store
+Thumbs.db
